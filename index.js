@@ -168,6 +168,43 @@ async function generateAudioBuffer(text) {
 }
 
 // ==========================================
+// 3.5. HỆ THỐNG VẼ TRANH AI (POLLINATIONS & GEMINI PROMPT ENHANCER)
+// ==========================================
+async function generateAIImageBuffer(prompt, style = '') {
+  let promptToUse = prompt;
+  try {
+    const promptEnhanceSystem = 'Bạn là chuyên gia tạo prompt vẽ tranh AI. Hãy dịch và mở rộng ý tưởng của người dùng thành một prompt tiếng Anh chi tiết, tuyệt đẹp cho AI art (FLUX/SDXL). Chỉ xuất ra DUY NHẤT câu prompt tiếng Anh, không giải thích hay thêm bớt lời chào.';
+    const translated = await callGemini([{ role: 'user', parts: [{ text: prompt }] }], promptEnhanceSystem);
+    if (translated && translated.trim()) {
+      promptToUse = translated.trim().replace(/\n+/g, ' ');
+    }
+  } catch (err) {
+    console.warn('Lỗi mở rộng prompt qua Gemini:', err.message);
+  }
+
+  if (style) {
+    promptToUse += `, ${style} style`;
+  }
+  promptToUse += ', masterpiece, best quality, highly detailed, vibrant lighting, 4k';
+
+  const seed = Math.floor(Math.random() * 10000000);
+  const polliKey = process.env.POLLINATIONS_API_KEY;
+  if (!polliKey) {
+    throw new Error('Chưa cấu hình biến môi trường POLLINATIONS_API_KEY (.env / Render).');
+  }
+  const url = `https://gen.pollinations.ai/image/${encodeURIComponent(promptToUse)}?key=${polliKey}&seed=${seed}&width=1024&height=1024`;
+
+  const res = await fetch(url);
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`Máy chủ tạo ảnh báo lỗi (${res.status}): ${errText.slice(0, 100)}`);
+  }
+
+  const arrayBuffer = await res.arrayBuffer();
+  return Buffer.from(arrayBuffer);
+}
+
+// ==========================================
 // 4. QUẢN LÝ VOICE CHANNEL & HÀNG ĐỢI ÂM THANH
 // ==========================================
 let isVoiceEnabled = true;
@@ -592,24 +629,24 @@ client.on('interactionCreate', async (interaction) => {
     await interaction.deferReply();
 
     try {
-      let enhancedPrompt = prompt;
-      if (style) enhancedPrompt += `, ${style} style, masterpiece, best quality, ultra-detailed`;
+      const buffer = await generateAIImageBuffer(prompt, style);
+      if (!buffer || buffer.length === 0) {
+        throw new Error('Dữ liệu ảnh nhận về bị rỗng.');
+      }
 
-      const seed = Math.floor(Math.random() * 10000000);
-      const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(enhancedPrompt)}?width=1024&height=1024&nologo=true&seed=${seed}`;
-
+      const attachment = new AttachmentBuilder(buffer, { name: 'art.jpg' });
       const embed = new EmbedBuilder()
         .setTitle(`🎨 Tác Phẩm AI: ${prompt.slice(0, 50)}`)
         .setDescription(`**Người yêu cầu:** <@${interaction.user.id}>\n**Phong cách:** ${style || 'Tự do'}`)
-        .setImage(imageUrl)
+        .setImage('attachment://art.jpg')
         .setColor(0x3498db)
         .setFooter({ text: 'Khun Aguero Agnis • AI Image Engine' })
         .setTimestamp();
 
-      await interaction.editReply({ embeds: [embed] });
+      await interaction.editReply({ embeds: [embed], files: [attachment] });
     } catch (err) {
       console.error('Lỗi /draw:', err);
-      await interaction.editReply('⚠️ Đã có lỗi xảy ra khi tạo ảnh. Vui lòng thử lại!');
+      await interaction.editReply(`⚠️ Không thể tạo ảnh: ${err.message || 'Vui lòng thử lại sau!'}`);
     }
     return;
   }
@@ -927,19 +964,26 @@ client.on('messageCreate', async (message) => {
 
       if (promptToDraw.length > 1) {
         await message.channel.sendTyping();
-        const seed = Math.floor(Math.random() * 10000000);
-        const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(promptToDraw + ', masterpiece, high quality, highly detailed')}?width=1024&height=1024&nologo=true&seed=${seed}`;
+        try {
+          const buffer = await generateAIImageBuffer(promptToDraw, '');
+          if (buffer && buffer.length > 0) {
+            const attachment = new AttachmentBuilder(buffer, { name: 'art.jpg' });
+            const embed = new EmbedBuilder()
+              .setTitle(`🎨 Tác Phẩm AI: ${promptToDraw.slice(0, 50)}`)
+              .setDescription(`**Người yêu cầu:** <@${message.author.id}>`)
+              .setImage('attachment://art.jpg')
+              .setColor(0x3498db)
+              .setFooter({ text: 'Khun Aguero Agnis • AI Image Engine' })
+              .setTimestamp();
 
-        const embed = new EmbedBuilder()
-          .setTitle(`🎨 Tác Phẩm AI: ${promptToDraw.slice(0, 50)}`)
-          .setDescription(`**Người yêu cầu:** <@${message.author.id}>`)
-          .setImage(imageUrl)
-          .setColor(0x3498db)
-          .setFooter({ text: 'Khun Aguero Agnis • AI Image Engine' })
-          .setTimestamp();
-
-        await message.reply({ embeds: [embed] });
-        return;
+            await message.reply({ embeds: [embed], files: [attachment] });
+            return;
+          }
+        } catch (err) {
+          console.error('Lỗi vẽ ảnh qua chat:', err);
+          await message.reply(`⚠️ Không thể tạo ảnh: ${err.message || 'Đã có lỗi xảy ra.'}`);
+          return;
+        }
       }
     }
 

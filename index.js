@@ -5,6 +5,7 @@ const {
   Partials,
   SlashCommandBuilder,
   AttachmentBuilder,
+  EmbedBuilder,
 } = require('discord.js');
 const {
   joinVoiceChannel,
@@ -25,7 +26,7 @@ const path = require('path');
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-  res.end('🤖 Discord AI Bot đang hoạt động 24/7!');
+  res.end('🤖 Khun Aguero Agnis - Discord AI Bot đang chạy 24/7!');
 }).listen(PORT, () => {
   console.log(`🌐 Health-check server sẵn sàng trên cổng ${PORT}`);
 });
@@ -84,7 +85,7 @@ async function urlToInlineData(url) {
   }
 }
 
-async function callGemini(contents) {
+async function callGemini(contents, customSystemPrompt = SYSTEM_PROMPT) {
   let lastError = null;
 
   for (const model of GEMINI_MODELS) {
@@ -94,7 +95,7 @@ async function callGemini(contents) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+          systemInstruction: { parts: [{ text: customSystemPrompt }] },
           contents: contents,
           generationConfig: {
             temperature: 0.7,
@@ -124,7 +125,7 @@ async function callGemini(contents) {
 }
 
 // ==========================================
-// 3. HỆ THỐNG GIỌNG ĐỌC AI (MICROSOFT EDGE TTS)
+// 3. HỆ THỐNG GIỌNG ĐỌC AI (TINH CHỈNH TỐC ĐỘ +12%, PITCH -2Hz)
 // ==========================================
 const VOICE_NAME = 'vi-VN-NamMinhNeural';
 
@@ -135,7 +136,7 @@ function cleanTextForTTS(text) {
     .replace(/[*_~#]/g, '')
     .replace(/<@!?\d+>/g, '')
     .replace(/https?:\/\/\S+/g, '')
-    .replace(/<a?:\w+:\d+>/g, '') // Bỏ custom emoji discord
+    .replace(/<a?:\w+:\d+>/g, '')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -147,20 +148,16 @@ async function generateAudioBuffer(text) {
 
     const textToRead = clean.slice(0, 500);
 
-    // Tạo thư mục tạm thời để lưu file âm thanh
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'khun-tts-'));
     const tts = new MsEdgeTTS();
     await tts.setMetadata(VOICE_NAME, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
 
-    // Tinh chỉnh: Tốc độ đọc +12% (nhanh dứt khoát) & Hạ âm trầm -2Hz (ngầu, trầm ấm)
     const res = await tts.toFile(tempDir, textToRead, {
       rate: 1.12,
       pitch: '-2Hz',
     });
 
     const buffer = fs.readFileSync(res.audioFilePath);
-
-    // Xóa thư mục tạm thời sau khi đọc xong
     fs.rmSync(tempDir, { recursive: true, force: true });
 
     return buffer;
@@ -171,13 +168,11 @@ async function generateAudioBuffer(text) {
 }
 
 // ==========================================
-// 4. QUẢN LÝ VOICE CHANNEL & HÀNG ĐỢI ÂM THANH (AUDIO QUEUE)
+// 4. QUẢN LÝ VOICE CHANNEL & HÀNG ĐỢI ÂM THANH
 // ==========================================
-let isVoiceEnabled = true;       // Bật/tắt giọng đọc AI
-let isReadChatEnabled = true;   // Bật/tắt tính năng tự đọc tin nhắn chat vào voice
+let isVoiceEnabled = true;
+let isReadChatEnabled = true;
 
-// Quản lý audio queue và text channels cho từng guild
-// Cấu trúc: guildId -> { player, queue: [], isPlaying: false, boundChannels: Set }
 const guildVoiceSessions = new Map();
 
 function getOrCreateVoiceSession(guildId) {
@@ -223,7 +218,6 @@ function playNextInQueue(guildId) {
   }
 }
 
-// Thêm âm thanh vào hàng đợi phát
 function queueAudio(guildId, audioBuffer) {
   const session = getOrCreateVoiceSession(guildId);
   session.queue.push(audioBuffer);
@@ -233,7 +227,57 @@ function queueAudio(guildId, audioBuffer) {
 }
 
 // ==========================================
-// 5. QUẢN LÝ BỘ NHỚ HỘI THOẠI & COOLDOWN
+// 5. HỆ THỐNG RPG: TÒA THÁP (TOWER OF GOD PROFILES)
+// ==========================================
+const towerProfiles = new Map();
+
+function getProfile(userId) {
+  if (!towerProfiles.has(userId)) {
+    const positions = [
+      'Light Bearer 🔦',
+      'Wave Controller 🌊',
+      'Fisherman 🎣',
+      'Spear Bearer 🎯',
+      'Scout 👁️',
+    ];
+    const defaultPos = positions[Math.floor(Math.random() * positions.length)];
+    towerProfiles.set(userId, {
+      shinsu: 20,
+      floor: 2,
+      position: defaultPos,
+      title: 'Người Leo Tháp Tập Sự',
+    });
+  }
+  return towerProfiles.get(userId);
+}
+
+function addShinsuExp(userId, amount = 10) {
+  const profile = getProfile(userId);
+  profile.shinsu += amount;
+  const nextFloorExp = profile.floor * 100;
+  if (profile.shinsu >= nextFloorExp) {
+    profile.floor += 1;
+    if (profile.floor === 20) profile.title = 'Regular Cấp C';
+    else if (profile.floor === 50) profile.title = 'Regular Cấp B';
+    else if (profile.floor === 80) profile.title = 'Regular Cấp A';
+    else if (profile.floor >= 100) profile.title = 'High Ranker 👑';
+  }
+}
+
+// Helper phân tích thời gian cho lệnh /remind
+function parseDuration(timeStr) {
+  const match = timeStr.toLowerCase().trim().match(/^(\d+)\s*(s|m|h)$/);
+  if (!match) return null;
+  const val = parseInt(match[1]);
+  const unit = match[2];
+  if (unit === 's') return val * 1000;
+  if (unit === 'm') return val * 60 * 1000;
+  if (unit === 'h') return val * 3600 * 1000;
+  return null;
+}
+
+// ==========================================
+// 6. QUẢN LÝ BỘ NHỚ HỘI THOẠI & COOLDOWN
 // ==========================================
 const conversationHistories = new Map();
 const userCooldowns = new Map();
@@ -272,7 +316,7 @@ function splitMessage(text, maxLength = 1900) {
 }
 
 // ==========================================
-// 6. KHỞI TẠO DISCORD CLIENT
+// 7. KHỞI TẠO DISCORD CLIENT
 // ==========================================
 const client = new Client({
   intents: [
@@ -292,8 +336,9 @@ client.once('ready', async () => {
   console.log(`🧠 AI Engine: Google Gemini (Multi-Model Fallback)`);
   console.log(`🎙️ TTS Engine: Microsoft Edge (${VOICE_NAME}) - MIỄN PHÍ`);
 
-  // Đăng ký Slash Commands
+  // Đăng ký toàn bộ Slash Commands
   const commands = [
+    // 1. Hỏi đáp AI
     new SlashCommandBuilder()
       .setName('ask')
       .setDescription('Hỏi đáp với Khun Aguero Agnis hoặc phân tích ảnh')
@@ -307,6 +352,85 @@ client.once('ready', async () => {
         opt.setName('image').setDescription('Ảnh đính kèm cần phân tích (tùy chọn)').setRequired(false)
       ),
 
+    // 2. Vẽ tranh AI
+    new SlashCommandBuilder()
+      .setName('draw')
+      .setDescription('Vẽ tranh bằng trí tuệ nhân tạo (AI Image Generator)')
+      .addStringOption((opt) =>
+        opt.setName('prompt').setDescription('Mô tả bức tranh bạn muốn vẽ (Tiếng Việt hoặc Anh)').setRequired(true)
+      )
+      .addStringOption((opt) =>
+        opt.setName('style')
+          .setDescription('Phong cách hội họa')
+          .setRequired(false)
+          .addChoices(
+            { name: 'Anime / Manga', value: 'anime' },
+            { name: 'Cyberpunk viễn tưởng', value: 'cyberpunk' },
+            { name: 'Fantasy kỳ ảo', value: 'fantasy' },
+            { name: '3D Render điện ảnh', value: '3d render' },
+            { name: 'Chân thực (Photorealistic)', value: 'photorealistic' }
+          )
+      ),
+
+    // 3. Khun Phán Xét (Roast)
+    new SlashCommandBuilder()
+      .setName('roast')
+      .setDescription('Nhờ Khun dùng con mắt chiến thuật để phán xét/khịa một ai đó')
+      .addUserOption((opt) =>
+        opt.setName('target').setDescription('Người bạn muốn Khun phán xét').setRequired(false)
+      )
+      .addStringOption((opt) =>
+        opt.setName('topic').setDescription('Chủ đề phán xét (ví dụ: độ tạ trong game, gu ăn mặc...)').setRequired(false)
+      ),
+
+    // 4. Tử vi & Chiến thuật Leo Rank
+    new SlashCommandBuilder()
+      .setName('tactics')
+      .setDescription('Xem bói tử vi và chiến thuật leo rank hôm nay từ Quân sư Khun')
+      .addStringOption((opt) =>
+        opt.setName('game').setDescription('Tên game bạn chuẩn bị chơi (Liên Quân, LMHT, Valorant...)').setRequired(true)
+      )
+      .addStringOption((opt) =>
+        opt.setName('role').setDescription('Vị trí của bạn trong đội hình (Rừng, Mid, Duelist, ADC...)').setRequired(false)
+      ),
+
+    // 5. Báo thức & Nhắc lịch bằng Giọng Nói
+    new SlashCommandBuilder()
+      .setName('remind')
+      .setDescription('Đặt hẹn giờ nhắc việc bằng giọng nói (ví dụ: 10m Ra cắm cơm)')
+      .addStringOption((opt) =>
+        opt.setName('time').setDescription('Thời gian đếm ngược (ví dụ: 30s, 10m, 1h)').setRequired(true)
+      )
+      .addStringOption((opt) =>
+        opt.setName('task').setDescription('Nội dung công việc cần nhắc').setRequired(true)
+      ),
+
+    // 6. Hồ sơ Tòa Tháp (RPG Profile)
+    new SlashCommandBuilder()
+      .setName('profile')
+      .setDescription('Xem thẻ căn cước Regular và cấp bậc leo Tháp của bạn')
+      .addUserOption((opt) =>
+        opt.setName('user').setDescription('Thành viên muốn xem hồ sơ').setRequired(false)
+      ),
+
+    // 7. Chọn Vị trí trong Tòa Tháp
+    new SlashCommandBuilder()
+      .setName('setrole')
+      .setDescription('Chọn vị trí chiến đấu của bạn trong Tòa Tháp')
+      .addStringOption((opt) =>
+        opt.setName('position')
+          .setDescription('Vị trí chiến đấu')
+          .setRequired(true)
+          .addChoices(
+            { name: 'Light Bearer 🔦 (Điều khiển Hải đăng - Quân sư)', value: 'Light Bearer 🔦' },
+            { name: 'Wave Controller 🌊 (Điều khiển Shinsu - Pháp sư)', value: 'Wave Controller 🌊' },
+            { name: 'Fisherman 🎣 (Ngư phủ tiên phong - Đấu sĩ)', value: 'Fisherman 🎣' },
+            { name: 'Spear Bearer 🎯 (Tay ném thương - Xạ thủ)', value: 'Spear Bearer 🎯' },
+            { name: 'Scout 👁️ (Trinh sát tiền tiêu)', value: 'Scout 👁️' }
+          )
+      ),
+
+    // 8. Bật/Tắt Giọng đọc
     new SlashCommandBuilder()
       .setName('voice')
       .setDescription('Bật hoặc tắt giọng đọc lồng tiếng của Bot')
@@ -321,6 +445,7 @@ client.once('ready', async () => {
           )
       ),
 
+    // 9. Bật/Tắt Đọc chat phòng voice
     new SlashCommandBuilder()
       .setName('readchat')
       .setDescription('Bật hoặc tắt chức năng tự đọc tin nhắn chat trong phòng thoại')
@@ -335,14 +460,17 @@ client.once('ready', async () => {
           )
       ),
 
+    // 10. Vào kênh voice
     new SlashCommandBuilder()
       .setName('join')
       .setDescription('Mời bot tham gia vào kênh thoại (Voice Channel) của bạn'),
 
+    // 11. Rời kênh voice
     new SlashCommandBuilder()
       .setName('leave')
       .setDescription('Cho bot rời khỏi kênh thoại (Voice Channel)'),
 
+    // 12. Reset ngữ cảnh
     new SlashCommandBuilder()
       .setName('reset')
       .setDescription('Xóa lịch sử hội thoại để bắt đầu cuộc trò chuyện mới'),
@@ -364,13 +492,15 @@ client.once('ready', async () => {
 });
 
 // ==========================================
-// 7. XỬ LÝ SLASH COMMANDS
+// 8. XỬ LÝ TOÀN BỘ SLASH COMMANDS
 // ==========================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
   const convoId = `user-${interaction.user.id}`;
   const guildId = interaction.guildId;
+  const connection = guildId ? getVoiceConnection(guildId) : null;
+  const isInVoiceRoom = connection && connection.state.status === VoiceConnectionStatus.Ready;
 
   // Lệnh /reset
   if (interaction.commandName === 'reset') {
@@ -382,70 +512,68 @@ client.on('interactionCreate', async (interaction) => {
     return;
   }
 
-  // Lệnh /voice (Bật/Tắt giọng đọc AI)
+  // Lệnh /voice
   if (interaction.commandName === 'voice') {
     const state = interaction.options.getString('state');
     isVoiceEnabled = state === 'on';
     await interaction.reply({
       content: isVoiceEnabled
-        ? '🎙️ **Đã BẬT** giọng đọc lồng tiếng (Nam Minh Neural)!'
+        ? '🎙️ **Đã BẬT** giọng đọc lồng tiếng (Nam Minh Neural - Tốc độ +12%, Pitch -2Hz)!'
         : '🔇 **Đã TẮT** giọng đọc lồng tiếng!',
       ephemeral: true,
     });
     return;
   }
 
-  // Lệnh /readchat (Bật/Tắt tự động đọc chat vào room)
+  // Lệnh /readchat
   if (interaction.commandName === 'readchat') {
     const state = interaction.options.getString('state');
     isReadChatEnabled = state === 'on';
     await interaction.reply({
       content: isReadChatEnabled
-        ? '📖 **Đã BẬT** chức năng tự động đọc tin nhắn chat vào phòng thoại (chỉ đọc nội dung, không đọc tên)!'
-        : '🔇 **Đã TẮT** chức năng tự động đọc tin nhắn chat!',
+        ? '📖 **Đã BẬT** chức năng tự đọc tin nhắn chat vào phòng thoại!'
+        : '🔇 **Đã TẮT** chức năng tự đọc tin nhắn chat!',
       ephemeral: true,
     });
     return;
   }
 
-  // Lệnh /join (Vào phòng thoại)
+  // Lệnh /join
   if (interaction.commandName === 'join') {
     const memberVoiceChannel = interaction.member?.voice?.channel;
     if (!memberVoiceChannel) {
       await interaction.reply({
-        content: '⚠️ Bạn phải ở trong một kênh thoại (Voice Channel) trước thì tôi mới vào được!',
+        content: '⚠️ Bạn phải ở trong một kênh thoại (Voice Channel) trước!',
         ephemeral: true,
       });
       return;
     }
 
     try {
-      const connection = joinVoiceChannel({
+      const conn = joinVoiceChannel({
         channelId: memberVoiceChannel.id,
         guildId: memberVoiceChannel.guild.id,
         adapterCreator: memberVoiceChannel.guild.voiceAdapterCreator,
       });
 
       const session = getOrCreateVoiceSession(memberVoiceChannel.guild.id);
-      connection.subscribe(session.player);
+      conn.subscribe(session.player);
 
-      // Ghi nhớ kênh chat để tự động đọc tin nhắn
-      session.boundChannels.add(memberVoiceChannel.id); // Khung chat của voice channel
-      session.boundChannels.add(interaction.channelId);  // Kênh text nơi gõ /join
+      session.boundChannels.add(memberVoiceChannel.id);
+      session.boundChannels.add(interaction.channelId);
 
       await interaction.reply({
-        content: `🔊 Đã tham gia kênh thoại **${memberVoiceChannel.name}**!\n📖 Tôi sẽ tự động đọc mọi tin nhắn bạn gõ trong khung chat vào phòng thoại (chỉ đọc nội dung, không đọc tên người gửi).`,
+        content: `🔊 Đã tham gia **${memberVoiceChannel.name}**!\n📖 Tôi sẽ tự động đọc tin nhắn chat vào phòng thoại.`,
       });
     } catch (err) {
       console.error('Lỗi /join:', err);
-      await interaction.reply({ content: `⚠️ Không thể vào phòng thoại: ${err.message}`, ephemeral: true });
+      await interaction.reply({ content: `⚠️ Lỗi vào phòng: ${err.message}`, ephemeral: true });
     }
     return;
   }
 
-  // Lệnh /leave (Rời phòng thoại)
+  // Lệnh /leave
   if (interaction.commandName === 'leave') {
-    const connection = guildId ? getVoiceConnection(guildId) : null;
     if (connection) {
       connection.destroy();
       guildVoiceSessions.delete(guildId);
@@ -453,6 +581,191 @@ client.on('interactionCreate', async (interaction) => {
     } else {
       await interaction.reply({ content: '⚠️ Bot hiện không ở trong kênh thoại nào!', ephemeral: true });
     }
+    return;
+  }
+
+  // Lệnh /draw (Vẽ tranh AI)
+  if (interaction.commandName === 'draw') {
+    const prompt = interaction.options.getString('prompt');
+    const style = interaction.options.getString('style') || '';
+
+    await interaction.deferReply();
+
+    try {
+      let enhancedPrompt = prompt;
+      if (style) enhancedPrompt += `, ${style} style, masterpiece, best quality, ultra-detailed`;
+
+      const seed = Math.floor(Math.random() * 10000000);
+      const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(enhancedPrompt)}?width=1024&height=1024&nologo=true&seed=${seed}`;
+
+      const embed = new EmbedBuilder()
+        .setTitle(`🎨 Tác Phẩm AI: ${prompt.slice(0, 50)}`)
+        .setDescription(`**Người yêu cầu:** <@${interaction.user.id}>\n**Phong cách:** ${style || 'Tự do'}`)
+        .setImage(imageUrl)
+        .setColor(0x3498db)
+        .setFooter({ text: 'Khun Aguero Agnis • AI Image Engine' })
+        .setTimestamp();
+
+      await interaction.editReply({ embeds: [embed] });
+    } catch (err) {
+      console.error('Lỗi /draw:', err);
+      await interaction.editReply('⚠️ Đã có lỗi xảy ra khi tạo ảnh. Vui lòng thử lại!');
+    }
+    return;
+  }
+
+  // Lệnh /roast (Khun Phán Xét)
+  if (interaction.commandName === 'roast') {
+    const target = interaction.options.getUser('target') || interaction.user;
+    const topic = interaction.options.getString('topic') || 'độ ngơ ngác và phong cách sinh tồn trong Tòa Tháp';
+
+    await interaction.deferReply();
+
+    try {
+      const roastPrompt = `Bạn là Khun Aguero Agnis (quý tộc mưu lược, sắc sảo và độc miệng).
+Hãy đưa ra một lời phán xét/khịa (roast) cực kỳ thâm thúy, thông minh, mỉa mai sâu cay nhưng phong thái lịch thiệp dành cho người có tên là "${target.username}" về chủ đề: "${topic}".
+Dài khoảng 2 đến 3 câu bằng tiếng Việt.`;
+
+      const roastText = await callGemini([{ role: 'user', parts: [{ text: roastPrompt }] }]);
+
+      let audioBuffer = null;
+      if (isVoiceEnabled) {
+        audioBuffer = await generateAudioBuffer(roastText);
+      }
+
+      if (isInVoiceRoom && audioBuffer) {
+        queueAudio(guildId, audioBuffer);
+        await interaction.editReply(`⚖️ **Khun Phán Xét** <@${target.id}>:\n> ${roastText}`);
+      } else if (audioBuffer && !isInVoiceRoom) {
+        const voiceAttachment = new AttachmentBuilder(audioBuffer, { name: 'khun_roast.mp3' });
+        await interaction.editReply({
+          content: `⚖️ **Khun Phán Xét** <@${target.id}>:\n> ${roastText}`,
+          files: [voiceAttachment],
+        });
+      } else {
+        await interaction.editReply(`⚖️ **Khun Phán Xét** <@${target.id}>:\n> ${roastText}`);
+      }
+    } catch (err) {
+      console.error('Lỗi /roast:', err);
+      await interaction.editReply(`⚠️ Lỗi phán xét: ${err.message}`);
+    }
+    return;
+  }
+
+  // Lệnh /tactics (Chiến thuật & Tử vi Game)
+  if (interaction.commandName === 'tactics') {
+    const game = interaction.options.getString('game');
+    const role = interaction.options.getString('role') || 'người gánh đội';
+
+    await interaction.deferReply();
+
+    try {
+      const tacticsPrompt = `Bạn là Khun Aguero Agnis, Light Bearer kiêm quân sư tối cao.
+Người chơi chuẩn bị bước vào trận game "${game}" ở vị trí "${role}".
+Hãy bói toán vận mệnh tử vi hôm nay và đưa ra lời khuyên chiến thuật xảo quyệt, hài hước, mưu mô để giành chiến thắng.
+Dài khoảng 3 câu bằng tiếng Việt.`;
+
+      const tacticsText = await callGemini([{ role: 'user', parts: [{ text: tacticsPrompt }] }]);
+
+      let audioBuffer = null;
+      if (isVoiceEnabled) {
+        audioBuffer = await generateAudioBuffer(tacticsText);
+      }
+
+      if (isInVoiceRoom && audioBuffer) {
+        queueAudio(guildId, audioBuffer);
+        await interaction.editReply(`🔮 **Hải Đăng Soi Kèo [${game}]**:\n> ${tacticsText}`);
+      } else if (audioBuffer && !isInVoiceRoom) {
+        const voiceAttachment = new AttachmentBuilder(audioBuffer, { name: 'khun_tactics.mp3' });
+        await interaction.editReply({
+          content: `🔮 **Hải Đăng Soi Kèo [${game}]**:\n> ${tacticsText}`,
+          files: [voiceAttachment],
+        });
+      } else {
+        await interaction.editReply(`🔮 **Hải Đăng Soi Kèo [${game}]**:\n> ${tacticsText}`);
+      }
+    } catch (err) {
+      console.error('Lỗi /tactics:', err);
+      await interaction.editReply(`⚠️ Lỗi chiến thuật: ${err.message}`);
+    }
+    return;
+  }
+
+  // Lệnh /remind (Báo thức & Nhắc lịch)
+  if (interaction.commandName === 'remind') {
+    const timeStr = interaction.options.getString('time');
+    const task = interaction.options.getString('task');
+    const ms = parseDuration(timeStr);
+
+    if (!ms) {
+      await interaction.reply({
+        content: '⚠️ Định dạng thời gian không đúng! Hãy dùng ví dụ: `30s` (giây), `10m` (phút), hoặc `1h` (tiếng).',
+        ephemeral: true,
+      });
+      return;
+    }
+
+    await interaction.reply(`⏰ Đã đặt lịch! Tôi sẽ nhắc bạn **"${task}"** sau **${timeStr}**.`);
+
+    const userToRemind = interaction.user;
+    const channelToRemind = interaction.channel;
+    const currentGuildId = interaction.guildId;
+
+    setTimeout(async () => {
+      try {
+        const reminderText = `Này <@${userToRemind.id}>, đã hết ${timeStr} rồi đấy! Việc cần làm: **${task}**!`;
+        if (channelToRemind) {
+          await channelToRemind.send(`⏰ ${reminderText}`).catch(() => {});
+        }
+
+        // Nếu bot đang trong phòng thoại, nói to nhắc nhở!
+        const voiceConn = currentGuildId ? getVoiceConnection(currentGuildId) : null;
+        if (voiceConn && isVoiceEnabled) {
+          const spokenReminder = `Này ${userToRemind.displayName || userToRemind.username}, đã hết giờ rồi đấy. Mau đi ${task} đi!`;
+          const audioBuf = await generateAudioBuffer(spokenReminder);
+          if (audioBuf) {
+            queueAudio(currentGuildId, audioBuf);
+          }
+        }
+      } catch (remindErr) {
+        console.error('Lỗi gửi nhắc nhở:', remindErr);
+      }
+    }, ms);
+    return;
+  }
+
+  // Lệnh /profile (Hồ sơ Người Leo Tháp)
+  if (interaction.commandName === 'profile') {
+    const targetUser = interaction.options.getUser('user') || interaction.user;
+    const profile = getProfile(targetUser.id);
+
+    const embed = new EmbedBuilder()
+      .setTitle(`📜 THẺ CĂN CƯỚC REGULAR: ${targetUser.username.toUpperCase()}`)
+      .setThumbnail(targetUser.displayAvatarURL())
+      .setColor(0x2ecc71)
+      .addFields(
+        { name: '🏰 Tầng Hiện Tại', value: `Tầng ${profile.floor}`, inline: true },
+        { name: '⚔️ Vị Trí Chiến Đấu', value: `${profile.position}`, inline: true },
+        { name: '✨ Điểm Shinsu (EXP)', value: `${profile.shinsu} EXP`, inline: true },
+        { name: '🏅 Danh Hiệu', value: `${profile.title}`, inline: false }
+      )
+      .setFooter({ text: 'Gia tộc Khun • Tòa Tháp Sinh Tử' })
+      .setTimestamp();
+
+    await interaction.reply({ embeds: [embed] });
+    return;
+  }
+
+  // Lệnh /setrole (Chọn Vị Trí)
+  if (interaction.commandName === 'setrole') {
+    const newPos = interaction.options.getString('position');
+    const profile = getProfile(interaction.user.id);
+    profile.position = newPos;
+
+    await interaction.reply({
+      content: `✅ Bạn đã đổi vị trí chiến đấu thành công: **${newPos}**! Hãy luyện tập Shinsu để leo tầng tiếp theo.`,
+      ephemeral: true,
+    });
     return;
   }
 
@@ -477,20 +790,15 @@ client.on('interactionCreate', async (interaction) => {
 
       const chunks = splitMessage(replyText);
 
-      const connection = guildId ? getVoiceConnection(guildId) : null;
-      const isInVoiceRoom = connection && connection.state.status === VoiceConnectionStatus.Ready;
-
       let audioBuffer = null;
       if (isVoiceEnabled) {
         audioBuffer = await generateAudioBuffer(replyText);
       }
 
       if (isInVoiceRoom && audioBuffer) {
-        // ĐÃ TRONG PHÒNG THOẠI -> PHÁT QUA MIC, KHÔNG GỬI FILE VÀO CHAT
         queueAudio(guildId, audioBuffer);
         await interaction.editReply({ content: chunks[0] });
       } else if (audioBuffer && !isInVoiceRoom) {
-        // KHÔNG TRONG PHÒNG THOẠI -> GỬI KÈM FILE MP3 VÀO CHAT
         const voiceAttachment = new AttachmentBuilder(audioBuffer, { name: 'khun_voice.mp3' });
         await interaction.editReply({ content: chunks[0], files: [voiceAttachment] });
       } else {
@@ -508,11 +816,14 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ==========================================
-// 8. XỬ LÝ CHAT TRỰC TIẾP & ĐỌC VĂN BẢN VÀO VOICE ROOM
+// 9. XỬ LÝ CHAT TRỰC TIẾP, ĐỌC TIN NHẮN VOICE & CỘNG ĐIỂM RPG
 // ==========================================
 client.on('messageCreate', async (message) => {
   try {
     if (message.author.bot) return;
+
+    // Cộng điểm Shinsu EXP khi chat
+    addShinsuExp(message.author.id, 5);
 
     const guildId = message.guildId;
     const connection = guildId ? getVoiceConnection(guildId) : null;
@@ -520,11 +831,7 @@ client.on('messageCreate', async (message) => {
     const isBotMentioned = message.mentions.has(client.user.id);
     const isDirectMessage = !message.guild;
 
-    // ========================================================
-    // TÍNH NĂNG 1: TỰ ĐỘNG ĐỌC TIN NHẮN CHAT VÀO PHÒNG THOẠI (TTS CHAT READER)
-    // Nếu bot đang trong phòng thoại, người dùng gõ tin nhắn (không tag bot)
-    // -> Bot đọc trực tiếp nội dung qua mic, KHÔNG đọc tên, KHÔNG gửi tin nhắn vào chat!
-    // ========================================================
+    // ĐỌC TIN NHẮN VÀO PHÒNG THOẠI (TTS CHAT READER)
     if (isInVoiceRoom && isReadChatEnabled && !isBotMentioned && !isDirectMessage) {
       const session = guildVoiceSessions.get(guildId);
       const isTargetChannel = session && (session.boundChannels.has(message.channelId) || session.boundChannels.size === 0);
@@ -533,7 +840,6 @@ client.on('messageCreate', async (message) => {
         const senderName = message.member?.displayName || message.author.displayName || message.author.username;
         const cleanText = cleanTextForTTS(message.content);
 
-        // Kiểm tra xem có chứa Link hay Tệp đính kèm không
         const hasLink = /https?:\/\/\S+/i.test(message.content);
         const attachments = message.attachments;
         const hasAttachment = attachments && attachments.size > 0;
@@ -555,14 +861,12 @@ client.on('messageCreate', async (message) => {
           fileAnnouncement = `${senderName} đã gửi một liên kết`;
         }
 
-        // Tạo câu đọc hoàn chỉnh
         let finalSpokenText = '';
         if (fileAnnouncement && cleanText) {
           finalSpokenText = `${cleanText}. ${fileAnnouncement}.`;
         } else if (fileAnnouncement) {
           finalSpokenText = `${fileAnnouncement}.`;
         } else if (cleanText && cleanText.length >= 1) {
-          // Tin nhắn văn bản thông thường: CHỈ ĐỌC NỘI DUNG, KHÔNG ĐỌC TÊN
           finalSpokenText = cleanText;
         }
 
@@ -571,27 +875,23 @@ client.on('messageCreate', async (message) => {
           if (audioBuffer) {
             queueAudio(guildId, audioBuffer);
           }
-          return; // Đã đọc vào room xong, không xử lý AI nữa
+          return;
         }
       }
     }
 
-    // ========================================================
-    // TÍNH NĂNG 2: HỎI ĐÁP VỚI AI (KHI ĐƯỢC TAG HOẶC TRONG DM)
-    // ========================================================
+    // HỎI ĐÁP VỚI AI KHI ĐƯỢC TAG HOẶC TRONG DM
     if (!isDirectMessage && !isBotMentioned) return;
 
     const cleanText = message.content.replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '').trim();
     const convoId = `user-${message.author.id}`;
 
-    // Lệnh reset nhanh
     if (cleanText.toLowerCase() === 'reset' || cleanText.toLowerCase() === '!reset') {
       clearHistory(convoId);
       await message.reply('🧹 Đã xóa lịch sử hội thoại của bạn! Hãy bắt đầu chủ đề mới nhé.');
       return;
     }
 
-    // Cooldown 3s
     const now = Date.now();
     const lastTime = userCooldowns.get(message.author.id) || 0;
     if (now - lastTime < 3000) {
@@ -636,11 +936,9 @@ client.on('messageCreate', async (message) => {
     }
 
     if (isInVoiceRoom && audioBuffer) {
-      // ĐÃ TRONG PHÒNG THOẠI -> PHÁT QUA MIC, KHÔNG GỬI FILE VÀO CHAT
       queueAudio(guildId, audioBuffer);
       await message.reply(chunks[0]);
     } else if (audioBuffer && !isInVoiceRoom) {
-      // KHÔNG TRONG PHÒNG THOẠI -> GỬI KÈM FILE MP3 VÀO CHAT
       const voiceAttachment = new AttachmentBuilder(audioBuffer, { name: 'khun_voice.mp3' });
       await message.reply({ content: chunks[0], files: [voiceAttachment] });
     } else {
@@ -658,6 +956,6 @@ client.on('messageCreate', async (message) => {
 });
 
 // ==========================================
-// 9. ĐĂNG NHẬP BOT
+// 10. ĐĂNG NHẬP BOT
 // ==========================================
 client.login(process.env.DISCORD_TOKEN);

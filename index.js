@@ -17,6 +17,9 @@ const {
 const { MsEdgeTTS, OUTPUT_FORMAT } = require('msedge-tts');
 const { Readable } = require('stream');
 const http = require('http');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
 // Health-check server để treo trên Cloud 24/7 (Render, Koyeb, Railway)
 const PORT = process.env.PORT || 3000;
@@ -144,19 +147,23 @@ async function generateAudioBuffer(text) {
 
     const textToRead = clean.slice(0, 500);
 
+    // Tạo thư mục tạm thời để lưu file âm thanh
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'khun-tts-'));
     const tts = new MsEdgeTTS();
     await tts.setMetadata(VOICE_NAME, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
-    const { audioStream } = tts.toStream(textToRead);
 
-    const chunks = [];
-    return new Promise((resolve) => {
-      audioStream.on('data', (c) => chunks.push(c));
-      audioStream.once('end', () => resolve(Buffer.concat(chunks)));
-      audioStream.once('error', (err) => {
-        console.error('Lỗi stream TTS:', err.message);
-        resolve(null);
-      });
+    // Tinh chỉnh: Tốc độ đọc +12% (nhanh dứt khoát) & Hạ âm trầm -2Hz (ngầu, trầm ấm)
+    const res = await tts.toFile(tempDir, textToRead, {
+      rate: 1.12,
+      pitch: '-2Hz',
     });
+
+    const buffer = fs.readFileSync(res.audioFilePath);
+
+    // Xóa thư mục tạm thời sau khi đọc xong
+    fs.rmSync(tempDir, { recursive: true, force: true });
+
+    return buffer;
   } catch (err) {
     console.error('Lỗi tạo giọng đọc TTS:', err.message);
     return null;

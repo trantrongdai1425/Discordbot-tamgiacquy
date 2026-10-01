@@ -909,6 +909,40 @@ client.on('messageCreate', async (message) => {
       return;
     }
 
+    // TỰ ĐỘNG PHÁT HIỆN YÊU CẦU VẼ TRANH TRONG CHAT THƯỜNG (Không cần gõ /draw)
+    const lowerClean = cleanText.toLowerCase();
+    const isDrawRequest = 
+      lowerClean.startsWith('vẽ ') || 
+      lowerClean.startsWith('ve ') || 
+      lowerClean.startsWith('draw ') || 
+      lowerClean.includes('vẽ cho tôi') || 
+      lowerClean.includes('vẽ giúp') || 
+      lowerClean.includes('vẽ một') || 
+      lowerClean.includes('vẽ bức tranh');
+
+    if (isDrawRequest && imageAttachments.size === 0) {
+      const promptToDraw = cleanText
+        .replace(/^(hãy |xin |làm ơn |nhờ bạn )?(vẽ cho tôi|vẽ giúp tôi|vẽ hộ tôi|vẽ giúp|vẽ một bức tranh|vẽ bức tranh|vẽ một|vẽ tranh|vẽ|ve|draw)\s*/i, '')
+        .trim();
+
+      if (promptToDraw.length > 1) {
+        await message.channel.sendTyping();
+        const seed = Math.floor(Math.random() * 10000000);
+        const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(promptToDraw + ', masterpiece, high quality, highly detailed')}?width=1024&height=1024&nologo=true&seed=${seed}`;
+
+        const embed = new EmbedBuilder()
+          .setTitle(`🎨 Tác Phẩm AI: ${promptToDraw.slice(0, 50)}`)
+          .setDescription(`**Người yêu cầu:** <@${message.author.id}>`)
+          .setImage(imageUrl)
+          .setColor(0x3498db)
+          .setFooter({ text: 'Khun Aguero Agnis • AI Image Engine' })
+          .setTimestamp();
+
+        await message.reply({ embeds: [embed] });
+        return;
+      }
+    }
+
     await message.channel.sendTyping();
     const typingInterval = setInterval(() => {
       message.channel.sendTyping().catch(() => {});

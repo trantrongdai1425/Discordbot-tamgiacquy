@@ -395,7 +395,8 @@ async function startOnDemandVoiceTalk(interaction, guildId, memberVoiceChannel) 
 
   const userId = interaction.user.id;
   await interaction.reply({
-    content: `🎙️ <@${userId}> ơi, tôi đang lắng nghe bạn! **Hãy nói vào mic trong 10 giây tới...**`,
+    content: `🎙️ Đang mở mic lắng nghe riêng bạn trong 10 giây tới... *(Chỉ một mình bạn nhìn thấy tin nhắn này, không làm phiền kênh chat)*`,
+    ephemeral: true,
   });
 
   // Phát tín hiệu âm thanh vào phòng voice
@@ -411,7 +412,7 @@ async function startOnDemandVoiceTalk(interaction, guildId, memberVoiceChannel) 
     if (!hasReceivedAudio) {
       activeVoiceListeners.delete(guildId);
       interaction.followUp({
-        content: `⏳ <@${userId}> ơi, đã hết 10 giây chờ nhưng tôi chưa nghe thấy bạn nói gì. Hãy bấm lại nút khi sẵn sàng nhé!`,
+        content: `⏳ Đã hết 10 giây chờ (chưa nhận thấy câu hỏi). Hãy bấm lại khi sẵn sàng nhé!`,
         ephemeral: true,
       }).catch(() => {});
     }

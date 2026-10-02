@@ -63,10 +63,23 @@ const GEMINI_MODELS = [
   'gemini-3.8-flash',
 ];
 
-const SYSTEM_PROMPT = `Bạn là Khun Aguero Agnis, một nhân vật xuất thân từ Gia tộc Khun (Tower of God).
+const SYSTEM_PROMPT_KHUN = `Bạn là Khun Aguero Agnis, một nhân vật xuất thân từ Gia tộc Khun (Tower of God).
 Bạn là Light Bearer (Người điều khiển Hải đăng), cực kỳ thông minh, điềm tĩnh, nhạy bén và mưu lược.
 Hãy trả lời người dùng một cách lịch thiệp, sắc sảo, tự tin và hữu ích bằng tiếng Việt.
 Nếu người dùng đính kèm hình ảnh, hãy quan sát kỹ lưỡng và đưa ra phân tích chính xác nhất.`;
+
+const SYSTEM_PROMPT_NORMAL = `Bạn là một trợ lý AI thông minh, hữu ích, khách quan, chính xác và chuyên nghiệp.
+Hãy trả lời câu hỏi của người dùng một cách trực tiếp, mạch lạc, ngắn gọn và hữu ích bằng tiếng Việt.
+Không cần xưng hô theo bất kỳ nhân vật hư cấu nào. Trả lời một cách chuẩn mực, khách quan như một mô hình ngôn ngữ lớn (LLM).
+Nếu người dùng đính kèm hình ảnh, hãy quan sát kỹ lưỡng và đưa ra phân tích chính xác nhất.`;
+
+// Map lưu chế độ phong cách phản hồi theo từng Server (Guild)
+const guildPersonalityModes = new Map();
+
+function getSystemPrompt(guildId) {
+  const mode = guildPersonalityModes.get(guildId) || 'khun';
+  return mode === 'khun' ? SYSTEM_PROMPT_KHUN : SYSTEM_PROMPT_NORMAL;
+}
 
 async function urlToInlineData(url) {
   try {
@@ -85,7 +98,8 @@ async function urlToInlineData(url) {
   }
 }
 
-async function callGemini(contents, customSystemPrompt = SYSTEM_PROMPT) {
+async function callGemini(contents, customSystemPrompt = null, guildId = null) {
+  const promptToUse = customSystemPrompt || getSystemPrompt(guildId);
   let lastError = null;
 
   for (const model of GEMINI_MODELS) {
@@ -95,7 +109,7 @@ async function callGemini(contents, customSystemPrompt = SYSTEM_PROMPT) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          systemInstruction: { parts: [{ text: customSystemPrompt }] },
+          systemInstruction: { parts: [{ text: promptToUse }] },
           contents: contents,
           generationConfig: {
             temperature: 0.7,
@@ -511,6 +525,26 @@ client.once('ready', async () => {
     new SlashCommandBuilder()
       .setName('reset')
       .setDescription('Xóa lịch sử hội thoại để bắt đầu cuộc trò chuyện mới'),
+
+    // 13. Chọn Phong cách AI (Khun / Tiêu chuẩn)
+    new SlashCommandBuilder()
+      .setName('mode')
+      .setDescription('Bật/Tắt phong cách nhập vai Khun Aguero Agnis hoặc chuyển về AI tiêu chuẩn')
+      .addStringOption((opt) =>
+        opt
+          .setName('style')
+          .setDescription('Phong cách phản hồi của Bot (Toàn server)')
+          .setRequired(true)
+          .addChoices(
+            { name: '👑 Khun Aguero Agnis (Quý tộc mưu lược, sắc sảo)', value: 'khun' },
+            { name: '🤖 AI Tiêu Chuẩn (Trung lập, thẳng thắn, như ChatGPT)', value: 'normal' }
+          )
+      ),
+
+    // 14. Bảng hướng dẫn sử dụng toàn diện
+    new SlashCommandBuilder()
+      .setName('help')
+      .setDescription('Hiển thị bảng hướng dẫn và danh sách tất cả các lệnh của Bot'),
   ];
 
   try {
@@ -546,6 +580,76 @@ client.on('interactionCreate', async (interaction) => {
       content: '🧹 Đã xóa sạch lịch sử hội thoại! Bạn có thể bắt đầu chủ đề mới.',
       ephemeral: true,
     });
+    return;
+  }
+
+  // Lệnh /mode (Chọn phong cách phản hồi)
+  if (interaction.commandName === 'mode') {
+    const style = interaction.options.getString('style');
+    guildPersonalityModes.set(guildId, style);
+
+    if (style === 'khun') {
+      const embed = new EmbedBuilder()
+        .setTitle('👑 Phong Cách: Khun Aguero Agnis')
+        .setDescription('**Đã kích hoạt chế độ Khun cho toàn bộ Server!**\nTừ giờ tôi sẽ trả lời với tư cách là quý tộc Gia tộc Khun — sắc sảo, tự tin, mưu lược và đầy tính toán.')
+        .setColor(0x3498db);
+      await interaction.reply({ embeds: [embed] });
+    } else {
+      const embed = new EmbedBuilder()
+        .setTitle('🤖 Phong Cách: AI Tiêu Chuẩn (Standard AI)')
+        .setDescription('**Đã tắt chế độ nhập vai cho toàn bộ Server!**\nTừ giờ tôi sẽ hoạt động như một trợ lý AI thuần túy (tương tự ChatGPT/Gemini) — trả lời thẳng thắn, khách quan, chính xác và chuyên nghiệp.')
+        .setColor(0x2ecc71);
+      await interaction.reply({ embeds: [embed] });
+    }
+    return;
+  }
+
+  // Lệnh /help (Bảng hướng dẫn toàn diện)
+  if (interaction.commandName === 'help') {
+    const currentMode = guildPersonalityModes.get(guildId) || 'khun';
+    const modeName = currentMode === 'khun' ? '👑 Khun Aguero Agnis (Nhập vai)' : '🤖 AI Tiêu Chuẩn (Thuần túy)';
+
+    const embed = new EmbedBuilder()
+      .setTitle('📚 BẢNG HƯỚNG DẪN SỬ DỤNG - KHUN AGUERO ARGNIS')
+      .setDescription(`Chào mừng bạn! Dưới đây là danh sách đầy đủ tất cả các tính năng thông minh của Bot.\n*Chế độ hiện tại của Server:* **${modeName}**\n*(Dùng lệnh \`/mode\` để chuyển đổi)*`)
+      .setColor(0x3498db)
+      .addFields(
+        {
+          name: '🧠 1. HỎI ĐÁP & TRÍ TUỆ NHÂN TẠO',
+          value:
+            '• `/ask [câu_hỏi] [ảnh]` : Hỏi đáp với AI hoặc phân tích hình ảnh đính kèm.\n' +
+            '• `/mode [khun | normal]` : Đổi phong cách trả lời (Nhập vai Khun hoặc AI tiêu chuẩn).\n' +
+            '• `/reset` : Xóa lịch sử nhớ ngữ cảnh để bắt đầu cuộc trò chuyện mới.\n' +
+            '• **Chat tự nhiên:** Tag `@Khun` hoặc gọi thân mật *"Bot ơi"*, *"Khun ơi"*, *"Trợ lý ơi"*, *"Alo bot"*, bot sẽ phản hồi ngay!',
+        },
+        {
+          name: '🎨 2. VẼ TRANH NGHỆ THUẬT AI',
+          value:
+            '• `/draw [mô_tả] [phong_cách]` : Vẽ tranh AI đỉnh cao (Anime, 3D, Cyberpunk, Photorealistic).\n' +
+            '• **Vẽ qua Chat:** Gõ trực tiếp *"vẽ cho tôi [bức tranh]..."* trong chat, bot tự tạo ảnh HD đính kèm!',
+        },
+        {
+          name: '🎙️ 3. PHÒNG THOẠI (VOICE CHANNEL) & ĐỌC CHAT',
+          value:
+            '• `/join` : Mời bot vào kênh thoại bạn đang đứng.\n' +
+            '• `/leave` : Cho bot rời khỏi kênh thoại.\n' +
+            '• `/readchat [on | off]` : Bật/Tắt tự động đọc tin nhắn chat vào phòng thoại.\n' +
+            '• `/voice [on | off]` : Bật/Tắt giọng đọc lồng tiếng Nam Minh (tốc độ +12%, trầm -2Hz).',
+        },
+        {
+          name: '🏰 4. TÒA THÁP (TOWER OF GOD & TIỆN ÍCH)',
+          value:
+            '• `/profile [user]` : Xem thẻ căn cước Regular, cấp bậc tầng, Shinsu và Vị trí RPG.\n' +
+            '• `/setrole [vị_trí]` : Đổi vị trí chiến đấu (Light Bearer, Fisherman, Wave Controller...).\n' +
+            '• `/roast [user] [chủ_đề]` : Nhờ Khun phán xét/khịa một ai đó bằng sự sắc sảo.\n' +
+            '• `/tactics [game] [role]` : Xem bói tử vi và chiến thuật leo rank đỉnh cao từ quân sư.\n' +
+            '• `/remind [thời_gian] [công_việc]` : Hẹn giờ nhắc việc (ví dụ: `10m Nấu cơm`).',
+        }
+      )
+      .setFooter({ text: 'Khun Aguero Agnis • Tower of God AI Assistant' })
+      .setTimestamp();
+
+    await interaction.reply({ embeds: [embed] });
     return;
   }
 
@@ -822,7 +926,7 @@ Dài khoảng 3 câu bằng tiếng Việt.`;
       }
 
       addToHistory(convoId, 'user', parts);
-      const replyText = await callGemini(getHistory(convoId));
+      const replyText = await callGemini(getHistory(convoId), null, guildId);
       addToHistory(convoId, 'model', [{ text: replyText }]);
 
       const chunks = splitMessage(replyText);
@@ -917,10 +1021,16 @@ client.on('messageCreate', async (message) => {
       }
     }
 
-    // HỎI ĐÁP VỚI AI KHI ĐƯỢC TAG HOẶC TRONG DM
-    if (!isDirectMessage && !isBotMentioned) return;
+    // HỎI ĐÁP VỚI AI KHI ĐƯỢC TAG, TRONG DM HOẶC GỌI TÊN TỰ NHIÊN
+    const wakeWordRegex = /^(bot ơi|khun ơi|khung ơi|khôn ơi|khum ơi|trợ lý ơi|ê bot|alo bot)[\s,:]*/i;
+    const isWakeWord = wakeWordRegex.test(message.content);
 
-    const cleanText = message.content.replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '').trim();
+    if (!isDirectMessage && !isBotMentioned && !isWakeWord) return;
+
+    const cleanText = message.content
+      .replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '')
+      .replace(wakeWordRegex, '')
+      .trim();
     const convoId = `user-${message.author.id}`;
 
     if (cleanText.toLowerCase() === 'reset' || cleanText.toLowerCase() === '!reset') {
@@ -1001,7 +1111,7 @@ client.on('messageCreate', async (message) => {
     }
 
     addToHistory(convoId, 'user', parts);
-    const replyText = await callGemini(getHistory(convoId));
+    const replyText = await callGemini(getHistory(convoId), null, guildId);
     clearInterval(typingInterval);
 
     addToHistory(convoId, 'model', [{ text: replyText }]);

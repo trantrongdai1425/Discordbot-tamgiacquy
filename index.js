@@ -6,6 +6,9 @@ const {
   SlashCommandBuilder,
   AttachmentBuilder,
   EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
 } = require('discord.js');
 const {
   joinVoiceChannel,
@@ -280,7 +283,7 @@ function queueAudio(guildId, audioBuffer) {
 }
 
 // ==========================================
-// 4.5. HỆ THỐNG ĐÀM THOẠI GIỌNG NÓI 2 CHIỀU (VOICE-TO-VOICE AI)
+// 4.5. HỆ THỐNG ĐÀM THOẠI GIỌNG NÓI THEO YÊU CẦU (ON-DEMAND VOICE AI - TIẾT KIỆM TOKEN)
 // ==========================================
 function createWavHeader(dataLength, sampleRate = 48000, numChannels = 2, bitDepth = 16) {
   const byteRate = (sampleRate * numChannels * bitDepth) / 8;
@@ -304,7 +307,26 @@ function createWavHeader(dataLength, sampleRate = 48000, numChannels = 2, bitDep
   return buffer;
 }
 
-async function handleVoiceSpeechInput(guildId, userId, wavBuffer) {
+const activeVoiceListeners = new Map(); // guildId -> { userId, timeoutId }
+
+function createVoiceControlRow() {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('btn_voice_talk')
+      .setLabel('🎙️ Nhấn để nói (Hỏi Khun)')
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId('btn_voice_readchat')
+      .setLabel('📖 Đọc Chat (Bật/Tắt)')
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId('btn_voice_leave')
+      .setLabel('👋 Rời phòng')
+      .setStyle(ButtonStyle.Danger)
+  );
+}
+
+async function handleVoiceSpeechInputOnDemand(guildId, userId, wavBuffer) {
   const currentMode = guildPersonalityModes.get(guildId) || 'khun';
   let personalityInstruction = '';
   if (currentMode === 'khun') {
@@ -313,11 +335,8 @@ async function handleVoiceSpeechInput(guildId, userId, wavBuffer) {
     personalityInstruction = 'Trả lời như một trợ lý AI chuẩn mực, ngắn gọn, thẳng thắn, khách quan và lịch thiệp trong 1-2 câu.';
   }
 
-  const prompt = `Bạn đang lắng nghe một đoạn âm thanh giọng nói của thành viên trong phòng voice Discord.
-QUY TẮC BẮT BUỘC:
-1. Hãy phân tích người nói có đang gọi bot (như "bot ơi", "khun ơi", "khung ơi", "khôn ơi", "khum ơi", "trợ lý ơi", "alo bot", "ê bot") hoặc đang trực tiếp hỏi bot/nói chuyện với bot hay không.
-2. NẾU CÓ: Hãy trích xuất câu hỏi và trả lời lại bằng tiếng Việt trong 1-2 câu ngắn gọn, tự nhiên, thích hợp để đọc to qua mic. ${personalityInstruction}
-3. NẾU KHÔNG (người nói chỉ đang chém gió với bạn bè, chơi game, hò hét, cười đùa hoặc nói chuyện riêng không gọi bot): Hãy chỉ xuất ra DUY NHẤT một từ: IGNORE.`;
+  const prompt = `Bạn đang lắng nghe câu hỏi trực tiếp bằng giọng nói của thành viên trong phòng voice Discord.
+QUY TẮC: Hãy nghe câu hỏi trong đoạn âm thanh và trả lời lại bằng tiếng Việt trong 1-2 câu ngắn gọn, thông minh, tự nhiên để đọc to qua mic. ${personalityInstruction}`;
 
   for (const model of GEMINI_MODELS) {
     try {
@@ -343,11 +362,9 @@ QUY TẮC BẮT BUỘC:
       const data = await resp.json();
       const answer = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
 
-      if (!answer || answer.toUpperCase() === 'IGNORE' || answer.includes('IGNORE')) {
-        return;
-      }
+      if (!answer) continue;
 
-      console.log(`🎙️ [Voice AI Nhận Diện - Guild ${guildId}]: "${answer}"`);
+      console.log(`🎙️ [Voice AI Trả Lời - Guild ${guildId}]: "${answer}"`);
 
       const audioBuffer = await generateAudioBuffer(answer);
       if (audioBuffer) {
@@ -360,55 +377,89 @@ QUY TẮC BẮT BUỘC:
   }
 }
 
-function setupVoiceReceiver(connection, guildId) {
+async function startOnDemandVoiceTalk(interaction, guildId, memberVoiceChannel) {
+  const connection = getVoiceConnection(guildId);
+  if (!connection || connection.state.status !== VoiceConnectionStatus.Ready) {
+    return interaction.reply({
+      content: '⚠️ Bot hiện không ở trong phòng thoại nào! Hãy dùng lệnh `/join` trước.',
+      ephemeral: true,
+    });
+  }
+
+  if (activeVoiceListeners.has(guildId)) {
+    return interaction.reply({
+      content: '⏳ Bot đang lắng nghe một thành viên khác, vui lòng chờ trong giây lát!',
+      ephemeral: true,
+    });
+  }
+
+  const userId = interaction.user.id;
+  await interaction.reply({
+    content: `🎙️ <@${userId}> ơi, tôi đang lắng nghe bạn! **Hãy nói vào mic trong 10 giây tới...**`,
+  });
+
+  // Phát tín hiệu âm thanh vào phòng voice
+  const promptAudio = await generateAudioBuffer('Tôi đang nghe đây, mời bạn nói...');
+  if (promptAudio) {
+    queueAudio(guildId, promptAudio);
+  }
+
   const receiver = connection.receiver;
-  const activeListeningUsers = new Set();
+  let hasReceivedAudio = false;
 
-  receiver.speaking.on('start', (userId) => {
-    if (userId === client.user.id || activeListeningUsers.has(userId)) return;
+  const timeoutId = setTimeout(() => {
+    if (!hasReceivedAudio) {
+      activeVoiceListeners.delete(guildId);
+      interaction.followUp({
+        content: `⏳ <@${userId}> ơi, đã hết 10 giây chờ nhưng tôi chưa nghe thấy bạn nói gì. Hãy bấm lại nút khi sẵn sàng nhé!`,
+        ephemeral: true,
+      }).catch(() => {});
+    }
+  }, 12000);
 
-    const session = getOrCreateVoiceSession(guildId);
-    if (session && session.isPlaying) return;
+  activeVoiceListeners.set(guildId, { userId, timeoutId });
 
-    activeListeningUsers.add(userId);
+  // Lắng nghe stream từ người dùng này
+  const opusStream = receiver.subscribe(userId, {
+    end: {
+      behavior: EndBehaviorType.AfterSilence,
+      duration: 1200,
+    },
+  });
 
-    const opusStream = receiver.subscribe(userId, {
-      end: {
-        behavior: EndBehaviorType.AfterSilence,
-        duration: 1200,
-      },
-    });
+  const decoder = new prism.opus.Decoder({ frameSize: 960, channels: 2, rate: 48000 });
+  const pcmChunks = [];
 
-    const decoder = new prism.opus.Decoder({ frameSize: 960, channels: 2, rate: 48000 });
-    const pcmChunks = [];
+  opusStream.pipe(decoder);
 
-    opusStream.pipe(decoder);
+  decoder.on('data', (chunk) => {
+    if (pcmChunks.reduce((acc, c) => acc + c.length, 0) < 48000 * 2 * 2 * 12) {
+      pcmChunks.push(chunk);
+    }
+  });
 
-    decoder.on('data', (chunk) => {
-      if (pcmChunks.reduce((acc, c) => acc + c.length, 0) < 48000 * 2 * 2 * 12) {
-        pcmChunks.push(chunk);
-      }
-    });
+  decoder.on('end', async () => {
+    clearTimeout(timeoutId);
+    activeVoiceListeners.delete(guildId);
+    hasReceivedAudio = true;
 
-    decoder.on('end', async () => {
-      activeListeningUsers.delete(userId);
-      const pcmBuffer = Buffer.concat(pcmChunks);
+    const pcmBuffer = Buffer.concat(pcmChunks);
+    if (pcmBuffer.length < 100000) {
+      return;
+    }
 
-      // Nếu dưới 0.8 giây, bỏ qua (tiếng hít thở/click chuột)
-      if (pcmBuffer.length < 150000) return;
+    try {
+      const wavHeader = createWavHeader(pcmBuffer.length, 48000, 2, 16);
+      const wavBuffer = Buffer.concat([wavHeader, pcmBuffer]);
+      await handleVoiceSpeechInputOnDemand(guildId, userId, wavBuffer);
+    } catch (err) {
+      console.error('Lỗi xử lý âm thanh on-demand:', err.message);
+    }
+  });
 
-      try {
-        const wavHeader = createWavHeader(pcmBuffer.length, 48000, 2, 16);
-        const wavBuffer = Buffer.concat([wavHeader, pcmBuffer]);
-        await handleVoiceSpeechInput(guildId, userId, wavBuffer);
-      } catch (err) {
-        console.error('Lỗi xử lý âm thanh voice:', err.message);
-      }
-    });
-
-    decoder.on('error', () => {
-      activeListeningUsers.delete(userId);
-    });
+  decoder.on('error', () => {
+    clearTimeout(timeoutId);
+    activeVoiceListeners.delete(guildId);
   });
 }
 
@@ -680,6 +731,11 @@ client.once('ready', async () => {
     new SlashCommandBuilder()
       .setName('help')
       .setDescription('Hiển thị bảng hướng dẫn và danh sách tất cả các lệnh của Bot'),
+
+    // 15. Nói chuyện trực tiếp với Khun qua mic
+    new SlashCommandBuilder()
+      .setName('talk')
+      .setDescription('Bật mic để nói chuyện trực tiếp với Bot bằng giọng nói trong phòng voice (tiết kiệm token)'),
   ];
 
   try {
@@ -701,6 +757,46 @@ client.once('ready', async () => {
 // 8. XỬ LÝ TOÀN BỘ SLASH COMMANDS
 // ==========================================
 client.on('interactionCreate', async (interaction) => {
+  // Xử lý các nút bấm tương tác (Voice Control Panel)
+  if (interaction.isButton()) {
+    const guildId = interaction.guildId;
+    const memberVoiceChannel = interaction.member?.voice?.channel;
+
+    if (interaction.customId === 'btn_voice_talk') {
+      if (!memberVoiceChannel) {
+        return interaction.reply({
+          content: '⚠️ Bạn phải ở trong kênh thoại để nói chuyện với bot!',
+          ephemeral: true,
+        });
+      }
+      await startOnDemandVoiceTalk(interaction, guildId, memberVoiceChannel);
+      return;
+    }
+
+    if (interaction.customId === 'btn_voice_readchat') {
+      isReadChatEnabled = !isReadChatEnabled;
+      return interaction.reply({
+        content: isReadChatEnabled
+          ? '📖 **Đã BẬT** chức năng tự đọc tin nhắn chat vào phòng thoại!'
+          : '🔇 **Đã TẮT** chức năng tự đọc tin nhắn chat!',
+        ephemeral: true,
+      });
+    }
+
+    if (interaction.customId === 'btn_voice_leave') {
+      const conn = guildId ? getVoiceConnection(guildId) : null;
+      if (conn) {
+        conn.destroy();
+        guildVoiceSessions.delete(guildId);
+        activeVoiceListeners.delete(guildId);
+        return interaction.reply('👋 Đã rời khỏi kênh thoại theo yêu cầu!');
+      } else {
+        return interaction.reply({ content: '⚠️ Bot không còn ở trong phòng thoại nào!', ephemeral: true });
+      }
+    }
+    return;
+  }
+
   if (!interaction.isChatInputCommand()) return;
 
   const convoId = `user-${interaction.user.id}`;
@@ -839,11 +935,20 @@ client.on('interactionCreate', async (interaction) => {
       session.boundChannels.add(memberVoiceChannel.id);
       session.boundChannels.add(interaction.channelId);
 
-      // Kích hoạt nhận diện giọng nói Voice AI 2 chiều
-      setupVoiceReceiver(conn, memberVoiceChannel.guild.id);
+      const controlEmbed = new EmbedBuilder()
+        .setTitle(`🔊 Đã kết nối kênh thoại: ${memberVoiceChannel.name}`)
+        .setDescription(
+          `**🎙️ Đàm Thoại Trực Tiếp (Tiết kiệm Token):**\n` +
+          `• Bấm nút **[🎙️ Nhấn để nói (Hỏi Khun)]** bên dưới hoặc gõ **/talk** để nói chuyện trực tiếp qua mic.\n` +
+          `• Bot sẽ lắng nghe 1 câu hỏi của bạn và cất giọng trả lời ngay!\n\n` +
+          `**📖 Đọc Chat:** Bot tự động đọc các tin nhắn văn bản gửi trong server vào phòng thoại.`
+        )
+        .setColor(0x3498db)
+        .setFooter({ text: 'Khun Aguero Agnis • Voice Engine' });
 
       await interaction.reply({
-        content: `🔊 Đã tham gia **${memberVoiceChannel.name}**!\n🎙️ **Voice AI 2 Chiều đã bật:** Hãy gọi *"Khun ơi..."* hoặc *"Bot ơi..."* vào mic để trò chuyện trực tiếp!\n📖 Tôi cũng sẽ đọc tin nhắn chat vào phòng thoại.`,
+        embeds: [controlEmbed],
+        components: [createVoiceControlRow()],
       });
     } catch (err) {
       console.error('Lỗi /join:', err);
@@ -857,10 +962,25 @@ client.on('interactionCreate', async (interaction) => {
     if (connection) {
       connection.destroy();
       guildVoiceSessions.delete(guildId);
+      activeVoiceListeners.delete(guildId);
       await interaction.reply('👋 Đã rời khỏi kênh thoại!');
     } else {
       await interaction.reply({ content: '⚠️ Bot hiện không ở trong kênh thoại nào!', ephemeral: true });
     }
+    return;
+  }
+
+  // Lệnh /talk (Nói chuyện trực tiếp qua mic - Tiết kiệm Token)
+  if (interaction.commandName === 'talk') {
+    const memberVoiceChannel = interaction.member?.voice?.channel;
+    if (!memberVoiceChannel) {
+      await interaction.reply({
+        content: '⚠️ Bạn phải ở trong cùng kênh thoại với bot để nói chuyện!',
+        ephemeral: true,
+      });
+      return;
+    }
+    await startOnDemandVoiceTalk(interaction, guildId, memberVoiceChannel);
     return;
   }
 

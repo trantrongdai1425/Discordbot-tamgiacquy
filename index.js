@@ -14,7 +14,9 @@ const {
   AudioPlayerStatus,
   VoiceConnectionStatus,
   getVoiceConnection,
+  EndBehaviorType,
 } = require('@discordjs/voice');
+const prism = require('prism-media');
 const { MsEdgeTTS, OUTPUT_FORMAT } = require('msedge-tts');
 const { Readable } = require('stream');
 const http = require('http');
@@ -275,6 +277,139 @@ function queueAudio(guildId, audioBuffer) {
   if (!session.isPlaying) {
     playNextInQueue(guildId);
   }
+}
+
+// ==========================================
+// 4.5. HỆ THỐNG ĐÀM THOẠI GIỌNG NÓI 2 CHIỀU (VOICE-TO-VOICE AI)
+// ==========================================
+function createWavHeader(dataLength, sampleRate = 48000, numChannels = 2, bitDepth = 16) {
+  const byteRate = (sampleRate * numChannels * bitDepth) / 8;
+  const blockAlign = (numChannels * bitDepth) / 8;
+  const buffer = Buffer.alloc(44);
+
+  buffer.write('RIFF', 0);
+  buffer.writeUInt32LE(36 + dataLength, 4);
+  buffer.write('WAVE', 8);
+  buffer.write('fmt ', 12);
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(numChannels, 22);
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(byteRate, 28);
+  buffer.writeUInt16LE(blockAlign, 32);
+  buffer.writeUInt16LE(bitDepth, 34);
+  buffer.write('data', 36);
+  buffer.writeUInt32LE(dataLength, 40);
+
+  return buffer;
+}
+
+async function handleVoiceSpeechInput(guildId, userId, wavBuffer) {
+  const currentMode = guildPersonalityModes.get(guildId) || 'khun';
+  let personalityInstruction = '';
+  if (currentMode === 'khun') {
+    personalityInstruction = 'Trả lời bằng phong cách Khun Aguero Agnis (quý tộc mưu lược, sắc sảo, tự tin, ngắn gọn súc tích trong 1-2 câu).';
+  } else {
+    personalityInstruction = 'Trả lời như một trợ lý AI chuẩn mực, ngắn gọn, thẳng thắn, khách quan và lịch thiệp trong 1-2 câu.';
+  }
+
+  const prompt = `Bạn đang lắng nghe một đoạn âm thanh giọng nói của thành viên trong phòng voice Discord.
+QUY TẮC BẮT BUỘC:
+1. Hãy phân tích người nói có đang gọi bot (như "bot ơi", "khun ơi", "khung ơi", "khôn ơi", "khum ơi", "trợ lý ơi", "alo bot", "ê bot") hoặc đang trực tiếp hỏi bot/nói chuyện với bot hay không.
+2. NẾU CÓ: Hãy trích xuất câu hỏi và trả lời lại bằng tiếng Việt trong 1-2 câu ngắn gọn, tự nhiên, thích hợp để đọc to qua mic. ${personalityInstruction}
+3. NẾU KHÔNG (người nói chỉ đang chém gió với bạn bè, chơi game, hò hét, cười đùa hoặc nói chuyện riêng không gọi bot): Hãy chỉ xuất ra DUY NHẤT một từ: IGNORE.`;
+
+  for (const model of GEMINI_MODELS) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { inlineData: { mimeType: 'audio/wav', data: wavBuffer.toString('base64') } },
+              { text: prompt }
+            ]
+          }],
+          generationConfig: {
+            temperature: 0.7,
+            maxOutputTokens: 300,
+          }
+        })
+      });
+
+      if (!resp.ok) continue;
+      const data = await resp.json();
+      const answer = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+
+      if (!answer || answer.toUpperCase() === 'IGNORE' || answer.includes('IGNORE')) {
+        return;
+      }
+
+      console.log(`🎙️ [Voice AI Nhận Diện - Guild ${guildId}]: "${answer}"`);
+
+      const audioBuffer = await generateAudioBuffer(answer);
+      if (audioBuffer) {
+        queueAudio(guildId, audioBuffer);
+      }
+      return;
+    } catch (e) {
+      console.warn(`⚠️ Lỗi model ${model} khi phân tích voice:`, e.message);
+    }
+  }
+}
+
+function setupVoiceReceiver(connection, guildId) {
+  const receiver = connection.receiver;
+  const activeListeningUsers = new Set();
+
+  receiver.speaking.on('start', (userId) => {
+    if (userId === client.user.id || activeListeningUsers.has(userId)) return;
+
+    const session = getOrCreateVoiceSession(guildId);
+    if (session && session.isPlaying) return;
+
+    activeListeningUsers.add(userId);
+
+    const opusStream = receiver.subscribe(userId, {
+      end: {
+        behavior: EndBehaviorType.AfterSilence,
+        duration: 1200,
+      },
+    });
+
+    const decoder = new prism.opus.Decoder({ frameSize: 960, channels: 2, rate: 48000 });
+    const pcmChunks = [];
+
+    opusStream.pipe(decoder);
+
+    decoder.on('data', (chunk) => {
+      if (pcmChunks.reduce((acc, c) => acc + c.length, 0) < 48000 * 2 * 2 * 12) {
+        pcmChunks.push(chunk);
+      }
+    });
+
+    decoder.on('end', async () => {
+      activeListeningUsers.delete(userId);
+      const pcmBuffer = Buffer.concat(pcmChunks);
+
+      // Nếu dưới 0.8 giây, bỏ qua (tiếng hít thở/click chuột)
+      if (pcmBuffer.length < 150000) return;
+
+      try {
+        const wavHeader = createWavHeader(pcmBuffer.length, 48000, 2, 16);
+        const wavBuffer = Buffer.concat([wavHeader, pcmBuffer]);
+        await handleVoiceSpeechInput(guildId, userId, wavBuffer);
+      } catch (err) {
+        console.error('Lỗi xử lý âm thanh voice:', err.message);
+      }
+    });
+
+    decoder.on('error', () => {
+      activeListeningUsers.delete(userId);
+    });
+  });
 }
 
 // ==========================================
@@ -629,9 +764,10 @@ client.on('interactionCreate', async (interaction) => {
             '• **Vẽ qua Chat:** Gõ trực tiếp *"vẽ cho tôi [bức tranh]..."* trong chat, bot tự tạo ảnh HD đính kèm!',
         },
         {
-          name: '🎙️ 3. PHÒNG THOẠI (VOICE CHANNEL) & ĐỌC CHAT',
+          name: '🎙️ 3. ĐÀM THOẠI GIỌNG NÓI (VOICE AI) & ĐỌC CHAT',
           value:
-            '• `/join` : Mời bot vào kênh thoại bạn đang đứng.\n' +
+            '• **Đàm thoại trực tiếp 2 chiều:** Khi bot ở trong phòng voice, bạn chỉ cần nói vào mic *"Khun ơi..."* hoặc *"Bot ơi..."*, bot sẽ lắng nghe và cất giọng trả lời lại ngay!\n' +
+            '• `/join` : Mời bot vào kênh thoại bạn đang đứng (tự động bật nghe mic).\n' +
             '• `/leave` : Cho bot rời khỏi kênh thoại.\n' +
             '• `/readchat [on | off]` : Bật/Tắt tự động đọc tin nhắn chat vào phòng thoại.\n' +
             '• `/voice [on | off]` : Bật/Tắt giọng đọc lồng tiếng Nam Minh (tốc độ +12%, trầm -2Hz).',
@@ -703,8 +839,11 @@ client.on('interactionCreate', async (interaction) => {
       session.boundChannels.add(memberVoiceChannel.id);
       session.boundChannels.add(interaction.channelId);
 
+      // Kích hoạt nhận diện giọng nói Voice AI 2 chiều
+      setupVoiceReceiver(conn, memberVoiceChannel.guild.id);
+
       await interaction.reply({
-        content: `🔊 Đã tham gia **${memberVoiceChannel.name}**!\n📖 Tôi sẽ tự động đọc tin nhắn chat vào phòng thoại.`,
+        content: `🔊 Đã tham gia **${memberVoiceChannel.name}**!\n🎙️ **Voice AI 2 Chiều đã bật:** Hãy gọi *"Khun ơi..."* hoặc *"Bot ơi..."* vào mic để trò chuyện trực tiếp!\n📖 Tôi cũng sẽ đọc tin nhắn chat vào phòng thoại.`,
       });
     } catch (err) {
       console.error('Lỗi /join:', err);

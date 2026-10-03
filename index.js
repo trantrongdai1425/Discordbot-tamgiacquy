@@ -296,14 +296,41 @@ async function ensureSoundCloudClient() {
   }
 }
 
-// Bộ giải mã và tìm nạp thông tin bài hát (Hỗ trợ Từ khóa, Spotify, YouTube)
+// Hàm làm sạch tiêu đề video YouTube (Loại bỏ các tag rác thường gặp như [MV], [Vietsub], (4K), v.v.)
+function cleanYouTubeTitle(rawTitle) {
+  let cleaned = rawTitle
+    .replace(/\[(official|audio|mv|music video|lyric|lyrics|vietsub|kara|karaoke|full hd|4k|1080p|hd|hq|prod\.[^\]]*|teasing|trailer|remix|cover|beat)[^\]]*\]/gi, '')
+    .replace(/\((official|audio|mv|music video|lyric|lyrics|vietsub|kara|karaoke|full hd|4k|1080p|hd|hq|prod\.[^)]*|teasing|trailer|remix|cover|beat)[^)]*\)/gi, '')
+    .replace(/\|.*$/g, '')
+    .replace(/#(shorts|nhacbuontiktok|music|tiktok|[a-z0-9_]+)/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return cleaned || rawTitle;
+}
+
+// Bộ giải mã và tìm nạp thông tin bài hát (Hỗ trợ Từ khóa, Spotify, YouTube, SoundCloud, File trực tiếp)
 async function resolveTrackInfo(query, requestedBy) {
   await ensureSoundCloudClient();
   let title = '';
   let artist = '';
   let thumbnail = '';
   let originalUrl = query.trim();
-  let searchQuery = query.trim();
+  const candidates = [];
+
+  // 0. Kiểm tra link file âm thanh trực tiếp (.mp3, .wav, .ogg, .m4a)
+  if (query.match(/\.(mp3|wav|ogg|m4a)(\?.*)?$/i)) {
+    const filename = query.split('/').pop().split('?')[0];
+    return {
+      title: decodeURIComponent(filename),
+      artist: 'Direct Audio Stream',
+      url: originalUrl,
+      originalUrl: originalUrl,
+      thumbnail: '',
+      duration: 'Live / File',
+      sourceType: 'direct',
+      requestedBy: requestedBy,
+    };
+  }
 
   // 1. Kiểm tra link Spotify
   if (query.includes('spotify.com')) {
@@ -324,14 +351,11 @@ async function resolveTrackInfo(query, requestedBy) {
             if (parts.length === 2) {
               title = parts[0];
               artist = parts[1];
-              searchQuery = `${title} ${artist}`;
-            } else {
-              searchQuery = title;
+              candidates.push(`${title} ${artist}`.trim());
             }
           }
-        } catch (_) {
-          searchQuery = title;
-        }
+        } catch (_) {}
+        if (title) candidates.push(title);
       }
     } catch (e) {
       console.warn('Lỗi phân tích Spotify:', e.message);
@@ -346,38 +370,72 @@ async function resolveTrackInfo(query, requestedBy) {
         title = data.title || '';
         artist = data.author_name || '';
         thumbnail = data.thumbnail_url || '';
-        searchQuery = `${title} ${artist}`.trim();
+
+        const cleaned = cleanYouTubeTitle(title);
+        candidates.push(cleaned);
+        if (artist && !cleaned.toLowerCase().includes(artist.toLowerCase())) {
+          candidates.push(`${cleaned} ${artist}`.trim());
+        }
+        if (cleaned.includes('-')) {
+          const parts = cleaned.split('-');
+          candidates.push(parts[0].trim());
+          candidates.push(parts[1].trim());
+        }
+        candidates.push(title);
       }
     } catch (e) {
       console.warn('Lỗi phân tích YouTube:', e.message);
     }
   }
-
-  // 3. Tìm kiếm stream trên SoundCloud (Đa nguồn dự phòng 100% không bị chặn cloud IP trên Render)
-  let searchResults = [];
-  try {
-    searchResults = await play.search(searchQuery, { source: { soundcloud: 'tracks' }, limit: 5 });
-  } catch (err) {
-    scClientId = null;
-    await ensureSoundCloudClient();
+  // 3. Link SoundCloud trực tiếp
+  else if (query.includes('soundcloud.com')) {
     try {
-      searchResults = await play.search(searchQuery, { source: { soundcloud: 'tracks' }, limit: 5 });
-    } catch (retryErr) {
-      console.warn('Lỗi tìm kiếm SoundCloud:', retryErr.message);
+      const oembedRes = await fetch('https://soundcloud.com/oembed?url=' + encodeURIComponent(query) + '&format=json');
+      if (oembedRes.ok) {
+        const data = await oembedRes.json();
+        title = data.title || '';
+        artist = data.author_name || '';
+        thumbnail = data.thumbnail_url || '';
+        candidates.push(query);
+        if (title) candidates.push(title.replace(/\s+by\s+.*$/i, ''));
+      }
+    } catch (e) {
+      console.warn('Lỗi phân tích SoundCloud:', e.message);
+    }
+  }
+  // 4. Tìm kiếm từ khóa thông thường
+  else {
+    candidates.push(query.trim());
+  }
+
+  // Tìm kiếm theo danh sách ứng viên (Multi-tier candidate search)
+  let bestTrack = null;
+  for (const candidate of candidates) {
+    if (!candidate || candidate.length < 2) continue;
+    try {
+      let results = await play.search(candidate, { source: { soundcloud: 'tracks' }, limit: 5 });
+      if (!results || results.length === 0) {
+        scClientId = null;
+        await ensureSoundCloudClient();
+        results = await play.search(candidate, { source: { soundcloud: 'tracks' }, limit: 5 });
+      }
+
+      if (results && results.length > 0) {
+        const fullTracks = results.filter((t) => t.durationInSec && t.durationInSec > 45);
+        bestTrack =
+          fullTracks.find((t) => !/remix|bootleg|cover/i.test(t.name)) ||
+          fullTracks[0] ||
+          results[0];
+        if (bestTrack) break;
+      }
+    } catch (err) {
+      console.warn(`Lỗi tìm kiếm ứng viên [${candidate}]:`, err.message);
     }
   }
 
-  if (!searchResults || searchResults.length === 0) {
+  if (!bestTrack) {
     return null;
   }
-
-  // Lọc bài hát có thời lượng > 45 giây để tránh bản preview 30s
-  const fullTracks = searchResults.filter((t) => t.durationInSec && t.durationInSec > 45);
-  // Ưu tiên bản gốc (không chứa từ khóa remix/bootleg/cover nếu có nhiều kết quả)
-  const bestTrack =
-    fullTracks.find((t) => !/remix|bootleg|cover/i.test(t.name)) ||
-    fullTracks[0] ||
-    searchResults[0];
 
   return {
     title: title || bestTrack.name,
@@ -388,6 +446,7 @@ async function resolveTrackInfo(query, requestedBy) {
     duration: bestTrack.durationInSec
       ? `${Math.floor(bestTrack.durationInSec / 60)}:${('0' + (bestTrack.durationInSec % 60)).slice(-2)}`
       : 'N/A',
+    sourceType: 'soundcloud',
     requestedBy: requestedBy,
   };
 }
@@ -518,8 +577,13 @@ async function playNextSongInQueue(guildId) {
   musicQueue.isPlaying = true;
 
   try {
-    const stream = await play.stream(nextSong.url);
-    const resource = createAudioResource(stream.stream, { inputType: stream.type });
+    let resource;
+    if (nextSong.sourceType === 'direct') {
+      resource = createAudioResource(nextSong.url);
+    } else {
+      const stream = await play.stream(nextSong.url);
+      resource = createAudioResource(stream.stream, { inputType: stream.type });
+    }
 
     const connection = getVoiceConnection(guildId);
     if (connection) {
@@ -1463,7 +1527,10 @@ client.on('interactionCreate', async (interaction) => {
     try {
       const track = await resolveTrackInfo(query, interaction.user);
       if (!track) {
-        return interaction.editReply(`⚠️ Không tìm thấy bài hát nào cho từ khóa: **${query}**! Vui lòng thử lại với tên hoặc đường link khác.`);
+        return interaction.editReply(
+          `⚠️ Không tìm thấy bài hát nào cho: **${query.slice(0, 80)}**!\n` +
+          `💡 **Gợi ý:** Nếu đây là video clip lạ / cắt ghép trên YouTube (chưa có bản nhạc chính thức), bạn hãy thử tìm bằng cách gõ trực tiếp tên bài hát kèm tên ca sĩ (ví dụ: \`/play tên bài hát\`) nhé!`
+        );
       }
 
       const isCurrentlyPlaying =

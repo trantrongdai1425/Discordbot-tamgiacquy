@@ -1,5 +1,15 @@
 const dns = require('dns');
 dns.setDefaultResultOrder('ipv4first');
+
+try {
+  const { Agent, setGlobalDispatcher } = require('undici');
+  setGlobalDispatcher(new Agent({
+    connect: { family: 4 }
+  }));
+} catch (e) {
+  // Bỏ qua nếu undici không sẵn sàng
+}
+
 require('dotenv').config();
 const {
   Client,
@@ -33,6 +43,7 @@ const path = require('path');
 let loginStatus = 'Khởi tạo...';
 let loginError = null;
 let lastReadyTime = null;
+const recentDebugLogs = [];
 
 // Health-check server để treo trên Cloud 24/7 (Render, Koyeb, Railway)
 const PORT = process.env.PORT || 3000;
@@ -48,6 +59,9 @@ http.createServer((req, res) => {
   out += `Token Render: ${tokenMask}\n`;
   if (lastReadyTime) out += `Online lúc: ${lastReadyTime}\n`;
   if (loginError) out += `Lỗi kết nối: ${loginError}\n`;
+  if (recentDebugLogs.length > 0) {
+    out += `\nNhật ký Gateway (5 gần nhất):\n${recentDebugLogs.slice(-5).join('\n')}\n`;
+  }
   res.end(out);
 }).listen(PORT, () => {
   console.log(`🌐 Health-check server sẵn sàng trên cổng ${PORT}`);
@@ -840,6 +854,11 @@ client.on('shardError', (err) => {
 
 client.on('shardDisconnect', (event) => {
   loginStatus = `Mất kết nối Gateway (Code: ${event.code})`;
+});
+
+client.on('debug', (info) => {
+  recentDebugLogs.push(`[${new Date().toLocaleTimeString('vi-VN')}] ${info}`);
+  if (recentDebugLogs.length > 20) recentDebugLogs.shift();
 });
 
 client.once('ready', async () => {

@@ -772,6 +772,18 @@ async function playMultipleSongsFromNaturalRequest(songList, member, channel, sp
     session.musicQueue.textChannel = channel;
   }
 
+  // NẾU HIỆN TẠI KHÔNG CÓ BÀI HÁT NÀO ĐANG PHÁT:
+  // Đảm bảo dọn sạch danh sách cũ bị kẹt để nạp danh sách mới sạch sẽ 100%!
+  const isActuallyPlaying =
+    session.musicPlayer.state.status === AudioPlayerStatus.Playing ||
+    session.musicPlayer.state.status === AudioPlayerStatus.Paused;
+
+  if (!isActuallyPlaying) {
+    session.musicQueue.songs = [];
+    session.musicQueue.currentSong = null;
+    session.musicQueue.isPlaying = false;
+  }
+
   const firstQuery = songList[0];
   let statusMsg = null;
   if (channel) {
@@ -788,11 +800,6 @@ async function playMultipleSongsFromNaturalRequest(songList, member, channel, sp
       return false;
     }
 
-    const isCurrentlyPlaying =
-      session.musicQueue.isPlaying ||
-      session.musicPlayer.state.status === AudioPlayerStatus.Playing ||
-      session.musicPlayer.state.status === AudioPlayerStatus.Paused;
-
     // Nếu có lời thoại AI, đọc trước bằng TTS trước khi phát nhạc
     if (spokenReply && isVoiceEnabled) {
       const speechAudio = await generateAudioBuffer(spokenReply);
@@ -801,14 +808,14 @@ async function playMultipleSongsFromNaturalRequest(songList, member, channel, sp
       }
     }
 
-    if (isCurrentlyPlaying) {
-      session.musicQueue.songs.push(firstTrack);
-    } else {
-      session.musicQueue.songs.push(firstTrack);
+    session.musicQueue.songs.push(firstTrack);
+
+    // Kích hoạt phát bài đầu tiên nếu máy phát đang rảnh
+    if (!isActuallyPlaying && !session.musicQueue.isPlaying) {
       playNextSongInQueue(guildId);
     }
 
-    // Nếu có các bài hát tiếp theo trong danh sách (Playlist)
+    // Nạp tiếp các bài tiếp theo trong danh sách (Playlist)
     const addedTracks = [firstTrack];
     if (songList.length > 1) {
       for (let i = 1; i < songList.length; i++) {
@@ -818,9 +825,19 @@ async function playMultipleSongsFromNaturalRequest(songList, member, channel, sp
           if (nextTrack) {
             session.musicQueue.songs.push(nextTrack);
             addedTracks.push(nextTrack);
+
+            // Tự động kích hoạt phát tiếp nếu máy phát bị rảnh
+            if (!session.musicQueue.isPlaying && session.musicQueue.songs.length > 0) {
+              playNextSongInQueue(guildId);
+            }
           }
         } catch (_) {}
       }
+    }
+
+    // Đảm bảo sau khi nạp xong toàn bộ danh sách, nếu nhạc chưa chạy thì BẮT BUỘC chạy!
+    if (!session.musicQueue.isPlaying && session.musicQueue.songs.length > 0) {
+      playNextSongInQueue(guildId);
     }
 
     if (statusMsg) {
@@ -2261,6 +2278,79 @@ client.on('messageCreate', async (message) => {
       return;
     }
 
+    const lowerClean = cleanText.toLowerCase();
+
+    // TỰ ĐỘNG PHÁT HIỆN LỆNH ĐIỀU KHIỂN NHẠC BẰNG CHAT TỰ NHIÊN
+    if (
+      lowerClean === 'dừng nhạc' ||
+      lowerClean === 'tắt nhạc' ||
+      lowerClean === 'ngừng nhạc' ||
+      lowerClean === 'dừng phát' ||
+      lowerClean === 'stop' ||
+      lowerClean.includes('xóa danh sách') ||
+      lowerClean.includes('xoá danh sách') ||
+      lowerClean.includes('xóa hàng đợi') ||
+      lowerClean.includes('xoá hàng đợi') ||
+      lowerClean.includes('xóa hết nhạc') ||
+      lowerClean.includes('xoá hết nhạc') ||
+      lowerClean.includes('clear queue')
+    ) {
+      const session = guildVoiceSessions.get(guildId);
+      if (session) {
+        session.musicQueue.songs = [];
+        session.musicQueue.currentSong = null;
+        session.musicQueue.isPlaying = false;
+        session.musicPlayer.stop();
+        await message.reply('⏹️ **Đã dừng phát nhạc và làm sạch toàn bộ hàng đợi!** Bạn có thể yêu cầu phát danh sách mới bất cứ lúc nào.');
+      } else {
+        await message.reply('⚠️ Hiện tại không có bài hát nào đang phát!');
+      }
+      return;
+    }
+
+    if (
+      lowerClean === 'bỏ qua' ||
+      lowerClean === 'skip' ||
+      lowerClean === 'chuyển bài' ||
+      lowerClean === 'qua bài' ||
+      lowerClean.startsWith('bỏ qua bài') ||
+      lowerClean.startsWith('chuyển bài')
+    ) {
+      const session = guildVoiceSessions.get(guildId);
+      if (session && (session.musicQueue.isPlaying || session.musicQueue.currentSong)) {
+        const skippedSong = session.musicQueue.currentSong?.title || 'Hiện tại';
+        session.musicPlayer.stop();
+        await message.reply(`⏭️ Đã bỏ qua bài hát: **${skippedSong}**!`);
+      } else {
+        await message.reply('⚠️ Không có bài hát nào đang phát để bỏ qua!');
+      }
+      return;
+    }
+
+    if (lowerClean === 'tạm dừng' || lowerClean === 'pause' || lowerClean === 'dừng tạm') {
+      const session = guildVoiceSessions.get(guildId);
+      if (session && (session.musicQueue.isPlaying || session.musicQueue.currentSong)) {
+        session.musicPlayer.pause();
+        await message.reply('⏸️ **Đã tạm dừng bài hát!** (Nói "tiếp tục" hoặc gõ `/resume` để nghe tiếp)');
+      } else {
+        await message.reply('⚠️ Hiện tại không có bài hát nào đang phát!');
+      }
+      return;
+    }
+
+    if (lowerClean === 'tiếp tục' || lowerClean === 'resume' || lowerClean === 'phát tiếp') {
+      const session = guildVoiceSessions.get(guildId);
+      if (session && session.musicQueue.currentSong) {
+        const conn = getVoiceConnection(guildId);
+        if (conn) conn.subscribe(session.musicPlayer);
+        session.musicPlayer.unpause();
+        await message.reply('▶️ **Đã tiếp tục phát nhạc!**');
+      } else {
+        await message.reply('⚠️ Hiện tại không có bài hát nào đang tạm dừng!');
+      }
+      return;
+    }
+
     // TỰ ĐỘNG PHÁT HIỆN YÊU CẦU BẬT NHẠC THÔNG MINH BẰNG AI (AI Auto-DJ)
     if (imageAttachments.size === 0) {
       const musicSongList = await extractMusicListWithAI(cleanText);
@@ -2271,7 +2361,6 @@ client.on('messageCreate', async (message) => {
     }
 
     // TỰ ĐỘNG PHÁT HIỆN YÊU CẦU VẼ TRANH TRONG CHAT THƯỜNG (Không cần gõ /draw)
-    const lowerClean = cleanText.toLowerCase();
     const isDrawRequest = 
       lowerClean.startsWith('vẽ ') || 
       lowerClean.startsWith('ve ') || 

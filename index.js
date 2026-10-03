@@ -123,12 +123,14 @@ const GEMINI_MODELS = [
 const SYSTEM_PROMPT_KHUN = `Bạn là Khun Aguero Agnis, một nhân vật xuất thân từ Gia tộc Khun (Tower of God).
 Bạn là Light Bearer (Người điều khiển Hải đăng), cực kỳ thông minh, điềm tĩnh, nhạy bén và mưu lược.
 Hãy trả lời người dùng một cách lịch thiệp, sắc sảo, tự tin và hữu ích bằng tiếng Việt.
-Nếu người dùng đính kèm hình ảnh, hãy quan sát kỹ lưỡng và đưa ra phân tích chính xác nhất.`;
+Nếu người dùng đính kèm hình ảnh, hãy quan sát kỹ lưỡng và đưa ra phân tích chính xác nhất.
+LƯU Ý ĐẶC BIỆT VỀ ÂM NHẠC: Khi người dùng yêu cầu bật/mở/phát nhạc hoặc nhờ bạn gợi ý một bài hát, hãy đồng ý theo phong thái quý tộc của Khun và chèn cú pháp [PLAY: tên bài hát hoặc ca sĩ] vào cuối câu trả lời (ví dụ: [PLAY: Nơi này có anh Sơn Tùng]). Hệ thống bot sẽ tự động tìm kiếm nguồn nhạc và phát bài đó vào phòng thoại!`;
 
 const SYSTEM_PROMPT_NORMAL = `Bạn là một trợ lý AI thông minh, hữu ích, khách quan, chính xác và chuyên nghiệp.
 Hãy trả lời câu hỏi của người dùng một cách trực tiếp, mạch lạc, ngắn gọn và hữu ích bằng tiếng Việt.
 Không cần xưng hô theo bất kỳ nhân vật hư cấu nào. Trả lời một cách chuẩn mực, khách quan như một mô hình ngôn ngữ lớn (LLM).
-Nếu người dùng đính kèm hình ảnh, hãy quan sát kỹ lưỡng và đưa ra phân tích chính xác nhất.`;
+Nếu người dùng đính kèm hình ảnh, hãy quan sát kỹ lưỡng và đưa ra phân tích chính xác nhất.
+LƯU Ý ĐẶC BIỆT VỀ ÂM NHẠC: Khi người dùng yêu cầu bật/mở/phát nhạc hoặc nhờ gợi ý nhạc, hãy chèn cú pháp [PLAY: tên bài hát hoặc ca sĩ] vào cuối câu trả lời. Hệ thống bot sẽ tự động tìm kiếm nguồn nhạc và phát bài đó vào phòng thoại!`;
 
 // Map lưu chế độ phong cách phản hồi theo từng Server (Guild)
 const guildPersonalityModes = new Map();
@@ -640,6 +642,147 @@ async function playNextSongInQueue(guildId) {
   }
 }
 
+// Trích xuất tên bài hát từ câu nói tự nhiên (Ví dụ: "Khun ơi bật bài Nơi Này Có Anh đi", "mở nhạc lofi chill", "phát bài...")
+function extractMusicQuery(text) {
+  let t = text.trim()
+    .replace(/^(?:bot ơi|khun ơi|khung ơi|khôn ơi|khum ơi|trợ lý ơi|ê bot|alo bot)[\s,:]*/i, '')
+    .trim();
+
+  // Kiểm tra link trực tiếp nếu đi kèm từ khóa bật/mở/nghe
+  const linkMatch = t.match(/https?:\/\/\S+/i);
+  if (linkMatch && /(?:bật|mở|phát|play|nghe|chơi)/i.test(t)) {
+    return linkMatch[0];
+  }
+
+  const patterns = [
+    /^(?:hãy\s+)?(?:bật|mở|phát|chơi|nghe|cho\s+nghe|play)\s*(?:giúp|hộ)?\s*(?:cho\s*(?:tôi|tao|mình|anh|em)\s*)?(?:bài\s*hát|bài\s*nhạc|bản\s*nhạc|ca\s*khúc|bài|nhạc|track)?\s*:?\s*(.+)$/i,
+    /(?:bật|mở|phát|chơi|play)\s*(?:giúp|hộ)?\s*(?:cho\s*(?:tôi|tao|mình|anh|em)\s*)?(?:bài\s*hát|bài\s*nhạc|bản\s*nhạc|ca\s*khúc|bài|nhạc)\s+([^\.,!?]+)/i,
+    /(?:muốn\s*nghe|thích\s*nghe)\s*(?:bài\s*hát|bài\s*nhạc|bài|nhạc)?\s+([^\.,!?]+)/i,
+  ];
+
+  for (const p of patterns) {
+    const match = t.match(p);
+    if (match && match[1]) {
+      let song = match[1]
+        .replace(/(?:\s+(?:giúp|hộ)\s*(?:tôi|tao|mình|em|anh)?|\s+(?:đi\s*bot|đi\s*khun|nhé\s*bot|nhé\s*khun|với\s*nào|nha|nhé|nhe|đi|với|hộ|giúp))+$/gi, '')
+        .trim();
+      song = song.replace(/^(?:bài\s*hát|bài\s*nhạc|bản\s*nhạc|ca\s*khúc|bài|nhạc)\s+/i, '').trim();
+      if (song.length >= 2 && song.toLowerCase() !== 'nhạc' && song.toLowerCase() !== 'bài hát') {
+        return song;
+      }
+    }
+  }
+  return null;
+}
+
+// Phát nhạc theo yêu cầu tự nhiên (qua Text Chat hoặc Voice AI)
+async function playMusicFromNaturalRequest(query, member, channel, spokenReply = null) {
+  if (!member) return false;
+  const guildId = member.guild?.id;
+  if (!guildId) return false;
+
+  const voiceChannel = member.voice?.channel;
+  if (!voiceChannel) {
+    if (channel) {
+      await channel.send({
+        content: `⚠️ <@${member.id}> ơi, bạn phải tham gia vào một kênh thoại (Voice Channel) trước thì tôi mới bật bài **"${query}"** cho bạn nghe được chứ!`,
+      }).catch(() => {});
+    }
+    return false;
+  }
+
+  let conn = getVoiceConnection(guildId);
+  const session = getOrCreateVoiceSession(guildId);
+
+  // Tự động kết nối vào kênh voice nếu bot chưa vào
+  if (!conn) {
+    try {
+      conn = joinVoiceChannel({
+        channelId: voiceChannel.id,
+        guildId: guildId,
+        adapterCreator: voiceChannel.guild.voiceAdapterCreator,
+      });
+      session.boundChannels.add(voiceChannel.id);
+      if (channel) session.boundChannels.add(channel.id);
+    } catch (connErr) {
+      console.error('Lỗi kết nối voice tự động:', connErr);
+      if (channel) {
+        channel.send(`⚠️ Không thể kết nối vào phòng thoại: ${connErr.message}`).catch(() => {});
+      }
+      return false;
+    }
+  }
+
+  if (channel) {
+    session.musicQueue.textChannel = channel;
+  }
+
+  let statusMsg = null;
+  if (channel) {
+    statusMsg = await channel.send(`🔎 **AI DJ:** Đang tìm kiếm và nạp nguồn nhạc cho: **${query}**...`).catch(() => null);
+  }
+
+  try {
+    const track = await resolveTrackInfo(query, member.user);
+    if (!track) {
+      const notFoundMsg = `⚠️ Tôi đã tìm khắp nơi nhưng không thấy bản nhạc nào phù hợp cho: **${query}**! Hãy thử với tên bài hát cụ thể hơn nhé.`;
+      if (statusMsg) {
+        await statusMsg.edit(notFoundMsg).catch(() => {});
+      } else if (channel) {
+        await channel.send(notFoundMsg).catch(() => {});
+      }
+      return false;
+    }
+
+    const isCurrentlyPlaying =
+      session.musicQueue.isPlaying ||
+      session.musicPlayer.state.status === AudioPlayerStatus.Playing ||
+      session.musicPlayer.state.status === AudioPlayerStatus.Paused;
+
+    // Nếu có lời thoại AI, đọc trước bằng TTS trước khi phát nhạc
+    if (spokenReply && isVoiceEnabled) {
+      const speechAudio = await generateAudioBuffer(spokenReply);
+      if (speechAudio) {
+        queueAudio(guildId, speechAudio);
+      }
+    }
+
+    if (isCurrentlyPlaying) {
+      session.musicQueue.songs.push(track);
+      const queueEmbed = new EmbedBuilder()
+        .setTitle('➕ Đã Thêm Vào Hàng Đợi (AI Auto-DJ)')
+        .setDescription(
+          `**[${track.title}](${track.originalUrl})**\n` +
+          `**Nghệ sĩ:** ${track.artist}\n` +
+          `**Thời lượng:** \`${track.duration}\`\n` +
+          `**Vị trí chờ:** #${session.musicQueue.songs.length}\n` +
+          `**Người yêu cầu:** <@${member.id}>`
+        )
+        .setColor(0x1DB954)
+        .setThumbnail(track.thumbnail || null);
+
+      if (statusMsg) {
+        await statusMsg.edit({ content: null, embeds: [queueEmbed] }).catch(() => {});
+      } else if (channel) {
+        await channel.send({ embeds: [queueEmbed] }).catch(() => {});
+      }
+    } else {
+      session.musicQueue.songs.push(track);
+      playNextSongInQueue(guildId);
+      if (statusMsg) {
+        await statusMsg.edit(`🎶 Đã tìm thấy và đang phát: **[${track.title}](${track.originalUrl})** theo yêu cầu của <@${member.id}>!`).catch(() => {});
+      }
+    }
+    return true;
+  } catch (err) {
+    console.error('Lỗi phát nhạc tự động:', err);
+    if (statusMsg) {
+      await statusMsg.edit(`⚠️ Có lỗi khi bật nhạc: ${err.message}`).catch(() => {});
+    }
+    return false;
+  }
+}
+
 function playNextInQueue(guildId) {
   const session = guildVoiceSessions.get(guildId);
   if (!session || session.isPlaying || session.queue.length === 0) return;
@@ -725,7 +868,9 @@ async function handleVoiceSpeechInputOnDemand(guildId, userId, wavBuffer) {
   }
 
   const prompt = `Bạn đang lắng nghe câu hỏi trực tiếp bằng giọng nói của thành viên trong phòng voice Discord.
-QUY TẮC: Hãy nghe câu hỏi trong đoạn âm thanh và trả lời lại bằng tiếng Việt trong 1-2 câu ngắn gọn, thông minh, tự nhiên để đọc to qua mic. ${personalityInstruction}`;
+QUY TẮC:
+1. Nếu người nói yêu cầu bật/mở/phát bài hát (ví dụ: "bật bài...", "mở bài...", "cho nghe bài..."), hãy trả lời ngắn gọn 1 câu tự nhiên và chèn cú pháp [PLAY: tên bài hát hoặc ca sĩ] ở cuối câu.
+2. Nếu là câu hỏi bình thường, hãy nghe câu hỏi trong đoạn âm thanh và trả lời lại bằng tiếng Việt trong 1-2 câu ngắn gọn, thông minh, tự nhiên để đọc to qua mic. ${personalityInstruction}`;
 
   for (const model of GEMINI_MODELS) {
     try {
@@ -755,9 +900,22 @@ QUY TẮC: Hãy nghe câu hỏi trong đoạn âm thanh và trả lời lại b�
 
       console.log(`🎙️ [Voice AI Trả Lời - Guild ${guildId}]: "${answer}"`);
 
-      const audioBuffer = await generateAudioBuffer(answer);
+      const playMatch = answer.match(/\[PLAY:\s*([^\]]+)\]/i);
+      const cleanAnswer = answer.replace(/\[PLAY:\s*[^\]]+\]/gi, '').trim();
+
+      const audioBuffer = await generateAudioBuffer(cleanAnswer || 'Được rồi, tôi đang mở bài đó cho bạn.');
       if (audioBuffer) {
         queueAudio(guildId, audioBuffer);
+      }
+
+      if (playMatch && playMatch[1]) {
+        const guild = client.guilds.cache.get(guildId);
+        const member = guild ? await guild.members.fetch(userId).catch(() => null) : null;
+        if (member) {
+          const session = guildVoiceSessions.get(guildId);
+          const channel = session?.musicQueue?.textChannel || null;
+          playMusicFromNaturalRequest(playMatch[1].trim(), member, channel);
+        }
       }
       return;
     } catch (e) {
@@ -2031,6 +2189,13 @@ client.on('messageCreate', async (message) => {
       return;
     }
 
+    // TỰ ĐỘNG PHÁT HIỆN YÊU CẦU BẬT NHẠC TRONG CHAT THƯỜNG (Không cần gõ /play)
+    const naturalMusicQuery = extractMusicQuery(cleanText);
+    if (naturalMusicQuery && imageAttachments.size === 0) {
+      await playMusicFromNaturalRequest(naturalMusicQuery, message.member, message.channel);
+      return;
+    }
+
     // TỰ ĐỘNG PHÁT HIỆN YÊU CẦU VẼ TRANH TRONG CHAT THƯỜNG (Không cần gõ /draw)
     const lowerClean = cleanText.toLowerCase();
     const isDrawRequest = 
@@ -2089,13 +2254,18 @@ client.on('messageCreate', async (message) => {
     const replyText = await callGemini(getHistory(convoId), null, guildId);
     clearInterval(typingInterval);
 
-    addToHistory(convoId, 'model', [{ text: replyText }]);
+    // Kiểm tra nếu Gemini muốn phát nhạc qua thẻ [PLAY: ...]
+    const playTagMatch = replyText.match(/\[PLAY:\s*([^\]]+)\]/i);
+    let cleanedReplyText = replyText.replace(/\[PLAY:\s*[^\]]+\]/gi, '').trim();
+    if (!cleanedReplyText) cleanedReplyText = 'Tôi đang tìm và bật bài hát cho bạn đây!';
 
-    const chunks = splitMessage(replyText);
+    addToHistory(convoId, 'model', [{ text: cleanedReplyText }]);
+
+    const chunks = splitMessage(cleanedReplyText);
 
     let audioBuffer = null;
     if (isVoiceEnabled) {
-      audioBuffer = await generateAudioBuffer(replyText);
+      audioBuffer = await generateAudioBuffer(cleanedReplyText);
     }
 
     if (isInVoiceRoom && audioBuffer) {
@@ -2110,6 +2280,11 @@ client.on('messageCreate', async (message) => {
 
     for (let i = 1; i < chunks.length; i++) {
       await message.channel.send(chunks[i]);
+    }
+
+    if (playTagMatch && playTagMatch[1]) {
+      const songToPlay = playTagMatch[1].trim();
+      playMusicFromNaturalRequest(songToPlay, message.member, message.channel);
     }
 
   } catch (error) {

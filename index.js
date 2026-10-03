@@ -43,7 +43,27 @@ const path = require('path');
 let loginStatus = 'Khởi tạo...';
 let loginError = null;
 let lastReadyTime = null;
+let apiCheckResult = 'Đang kiểm tra kết nối API...';
 const recentDebugLogs = [];
+
+async function testDiscordApiConnection() {
+  const t = (process.env.DISCORD_TOKEN || '').replace(/^["']|["']$/g, '').trim();
+  const start = Date.now();
+  try {
+    const res = await fetch('https://discord.com/api/v10/gateway/bot', {
+      headers: { Authorization: `Bot ${t}` },
+      signal: AbortSignal.timeout(10000),
+    });
+    const status = res.status;
+    const text = await res.text();
+    apiCheckResult = `HTTP ${status} (${Date.now() - start}ms): ${text.slice(0, 150)}`;
+    console.log(`[API Probe]: ${apiCheckResult}`);
+  } catch (err) {
+    apiCheckResult = `Lỗi sau ${Date.now() - start}ms: ${err.message}`;
+    console.error(`[API Probe Error]: ${apiCheckResult}`);
+  }
+}
+testDiscordApiConnection();
 
 // Health-check server để treo trên Cloud 24/7 (Render, Koyeb, Railway)
 const PORT = process.env.PORT || 3000;
@@ -57,6 +77,7 @@ http.createServer((req, res) => {
   let out = `🤖 Khun Aguero Agnis - Discord AI Bot đang chạy 24/7!\n`;
   out += `Trạng thái: ${statusStr}\n`;
   out += `Token Render: ${tokenMask}\n`;
+  out += `API Probe: ${apiCheckResult}\n`;
   if (lastReadyTime) out += `Online lúc: ${lastReadyTime}\n`;
   if (loginError) out += `Lỗi kết nối: ${loginError}\n`;
   if (recentDebugLogs.length > 0) {
@@ -832,6 +853,12 @@ function splitMessage(text, maxLength = 1900) {
 // 7. KHỞI TẠO DISCORD CLIENT
 // ==========================================
 const client = new Client({
+  rest: { timeout: 15000 },
+  ws: {
+    handshakeTimeout: 15000,
+    helloTimeout: 15000,
+    readyTimeout: 15000,
+  },
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,

@@ -642,29 +642,32 @@ async function playNextSongInQueue(guildId) {
   }
 }
 
-// Trích xuất tên bài hát từ câu nói tự nhiên (Ví dụ: "Khun ơi bật bài Nơi Này Có Anh đi", "mở nhạc lofi chill", "phát bài...")
+// Trích xuất tên bài hát từ câu nói tự nhiên (Fallback regex)
 function extractMusicQuery(text) {
   let t = text.trim()
     .replace(/^(?:bot ơi|khun ơi|khung ơi|khôn ơi|khum ơi|trợ lý ơi|ê bot|alo bot)[\s,:]*/i, '')
     .trim();
 
-  // Kiểm tra link trực tiếp nếu đi kèm từ khóa bật/mở/nghe
   const linkMatch = t.match(/https?:\/\/\S+/i);
   if (linkMatch && /(?:bật|mở|phát|play|nghe|chơi)/i.test(t)) {
     return linkMatch[0];
   }
 
+  // Loại bỏ các đoạn chú thích trong ngoặc đơn hoặc ngoặc vuông
+  const textWithoutBrackets = t.replace(/\([^)]*\)/g, ' ').replace(/\[[^\]]*\]/g, ' ').replace(/\s+/g, ' ').trim();
+
   const patterns = [
     /^(?:hãy\s+)?(?:bật|mở|phát|chơi|nghe|cho\s+nghe|play)\s*(?:giúp|hộ)?\s*(?:cho\s*(?:tôi|tao|mình|anh|em)\s*)?(?:bài\s*hát|bài\s*nhạc|bản\s*nhạc|ca\s*khúc|bài|nhạc|track)?\s*:?\s*(.+)$/i,
-    /(?:bật|mở|phát|chơi|play)\s*(?:giúp|hộ)?\s*(?:cho\s*(?:tôi|tao|mình|anh|em)\s*)?(?:bài\s*hát|bài\s*nhạc|bản\s*nhạc|ca\s*khúc|bài|nhạc)\s+([^\.,!?]+)/i,
-    /(?:muốn\s*nghe|thích\s*nghe)\s*(?:bài\s*hát|bài\s*nhạc|bài|nhạc)?\s+([^\.,!?]+)/i,
+    /(?:bật|mở|phát|chơi|play)\s*(?:giúp|hộ)?\s*(?:cho\s*(?:tôi|tao|mình|anh|em)\s*)?(?:bài\s*hát|bài\s*nhạc|bản\s*nhạc|ca\s*khúc|bài|nhạc)\s+([^\.,!?\n]+)/i,
+    /(?:muốn\s*nghe|thích\s*nghe)\s*(?:bài\s*hát|bài\s*nhạc|bài|nhạc)?\s+([^\.,!?\n]+)/i,
   ];
 
   for (const p of patterns) {
-    const match = t.match(p);
+    const match = textWithoutBrackets.match(p) || t.match(p);
     if (match && match[1]) {
       let song = match[1]
         .replace(/(?:\s+(?:giúp|hộ)\s*(?:tôi|tao|mình|em|anh)?|\s+(?:đi\s*bot|đi\s*khun|nhé\s*bot|nhé\s*khun|với\s*nào|nha|nhé|nhe|đi|với|hộ|giúp))+$/gi, '')
+        .replace(/\([^)]*\)/g, '')
         .trim();
       song = song.replace(/^(?:bài\s*hát|bài\s*nhạc|bản\s*nhạc|ca\s*khúc|bài|nhạc)\s+/i, '').trim();
       if (song.length >= 2 && song.toLowerCase() !== 'nhạc' && song.toLowerCase() !== 'bài hát') {
@@ -675,9 +678,61 @@ function extractMusicQuery(text) {
   return null;
 }
 
-// Phát nhạc theo yêu cầu tự nhiên (qua Text Chat hoặc Voice AI)
-async function playMusicFromNaturalRequest(query, member, channel, spokenReply = null) {
-  if (!member) return false;
+// Bộ máy phân tích âm nhạc bằng AI (AI Music Intent & List Extractor)
+async function extractMusicListWithAI(text) {
+  const hasMusicIntent = /(?:bật|mở|phát|chơi|nghe|cho\s+nghe|play|nhạc|bài\s*hát|ca\s*khúc|track|playlist|album)/i.test(text);
+  if (!hasMusicIntent) return [];
+
+  // Nếu là link trực tiếp, lấy ngay link
+  const linkMatch = text.match(/https?:\/\/\S+/i);
+  if (linkMatch && /(?:bật|mở|phát|play|nghe|chơi)/i.test(text)) {
+    return [linkMatch[0]];
+  }
+
+  const systemPrompt = `Bạn là bộ máy phân tích yêu cầu âm nhạc của bot Discord.
+Nhiệm vụ: Phân tích xem người dùng có đang yêu cầu bật nhạc/nghe nhạc hay không.
+Nếu CÓ:
+- Trích xuất danh sách tên các bài hát sạch sẽ (BẮT BUỘC loại bỏ hoàn toàn các lời giải thích, chú thích trong ngoặc đơn, phim ảnh, cảm xúc, văn cảnh, dấu gạch nối mô tả...).
+- Nếu người dùng đưa cả một danh sách nhiều bài, hãy trích xuất toàn bộ các bài theo thứ tự.
+- Xuất kết quả dưới dạng JSON array: ["Tên bài 1", "Tên bài 2", ...]
+Nếu KHÔNG yêu cầu bật nhạc (ví dụ nói chuyện phiếm, hỏi toán, vẽ tranh...): Xuất mảng rỗng []`;
+
+  for (const model of GEMINI_MODELS) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: systemPrompt }] },
+          contents: [{ parts: [{ text: text }] }],
+          generationConfig: { temperature: 0.1, maxOutputTokens: 600 }
+        })
+      });
+      if (!res.ok) continue;
+      const data = await res.json();
+      const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+      if (!rawText) continue;
+
+      const cleaned = rawText.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
+      const parsed = JSON.parse(cleaned);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.map((s) => String(s).trim()).filter((s) => s.length >= 2);
+      }
+      return [];
+    } catch (_) {
+      // Thử model kế tiếp
+    }
+  }
+
+  // Fallback: nếu AI bận thì dùng regex
+  const fallbackSong = extractMusicQuery(text);
+  return fallbackSong ? [fallbackSong] : [];
+}
+
+// Phát danh sách bài hát theo yêu cầu tự nhiên (hỗ trợ cả 1 bài hoặc nhiều bài/playlist)
+async function playMultipleSongsFromNaturalRequest(songList, member, channel, spokenReply = null) {
+  if (!member || !songList || songList.length === 0) return false;
   const guildId = member.guild?.id;
   if (!guildId) return false;
 
@@ -685,7 +740,7 @@ async function playMusicFromNaturalRequest(query, member, channel, spokenReply =
   if (!voiceChannel) {
     if (channel) {
       await channel.send({
-        content: `⚠️ <@${member.id}> ơi, bạn phải tham gia vào một kênh thoại (Voice Channel) trước thì tôi mới bật bài **"${query}"** cho bạn nghe được chứ!`,
+        content: `⚠️ <@${member.id}> ơi, bạn phải tham gia vào một kênh thoại (Voice Channel) trước thì tôi mới bật nhạc cho bạn nghe được chứ!`,
       }).catch(() => {});
     }
     return false;
@@ -717,20 +772,19 @@ async function playMusicFromNaturalRequest(query, member, channel, spokenReply =
     session.musicQueue.textChannel = channel;
   }
 
+  const firstQuery = songList[0];
   let statusMsg = null;
   if (channel) {
-    statusMsg = await channel.send(`🔎 **AI DJ:** Đang tìm kiếm và nạp nguồn nhạc cho: **${query}**...`).catch(() => null);
+    const listSummary = songList.length > 1 ? ` (Danh sách gồm ${songList.length} bài hát)` : '';
+    statusMsg = await channel.send(`🔎 **AI Auto-DJ:** Đang phân tích và nạp nhạc cho: **${firstQuery}**${listSummary}...`).catch(() => null);
   }
 
   try {
-    const track = await resolveTrackInfo(query, member.user);
-    if (!track) {
-      const notFoundMsg = `⚠️ Tôi đã tìm khắp nơi nhưng không thấy bản nhạc nào phù hợp cho: **${query}**! Hãy thử với tên bài hát cụ thể hơn nhé.`;
-      if (statusMsg) {
-        await statusMsg.edit(notFoundMsg).catch(() => {});
-      } else if (channel) {
-        await channel.send(notFoundMsg).catch(() => {});
-      }
+    const firstTrack = await resolveTrackInfo(firstQuery, member.user);
+    if (!firstTrack) {
+      const notFoundMsg = `⚠️ Không tìm thấy nguồn phát cho bài: **${firstQuery}**! Hãy thử với tên bài cụ thể hơn nhé.`;
+      if (statusMsg) await statusMsg.edit(notFoundMsg).catch(() => {});
+      else if (channel) await channel.send(notFoundMsg).catch(() => {});
       return false;
     }
 
@@ -748,39 +802,57 @@ async function playMusicFromNaturalRequest(query, member, channel, spokenReply =
     }
 
     if (isCurrentlyPlaying) {
-      session.musicQueue.songs.push(track);
-      const queueEmbed = new EmbedBuilder()
-        .setTitle('➕ Đã Thêm Vào Hàng Đợi (AI Auto-DJ)')
-        .setDescription(
-          `**[${track.title}](${track.originalUrl})**\n` +
-          `**Nghệ sĩ:** ${track.artist}\n` +
-          `**Thời lượng:** \`${track.duration}\`\n` +
-          `**Vị trí chờ:** #${session.musicQueue.songs.length}\n` +
-          `**Người yêu cầu:** <@${member.id}>`
-        )
-        .setColor(0x1DB954)
-        .setThumbnail(track.thumbnail || null);
-
-      if (statusMsg) {
-        await statusMsg.edit({ content: null, embeds: [queueEmbed] }).catch(() => {});
-      } else if (channel) {
-        await channel.send({ embeds: [queueEmbed] }).catch(() => {});
-      }
+      session.musicQueue.songs.push(firstTrack);
     } else {
-      session.musicQueue.songs.push(track);
+      session.musicQueue.songs.push(firstTrack);
       playNextSongInQueue(guildId);
-      if (statusMsg) {
-        await statusMsg.edit(`🎶 Đã tìm thấy và đang phát: **[${track.title}](${track.originalUrl})** theo yêu cầu của <@${member.id}>!`).catch(() => {});
+    }
+
+    // Nếu có các bài hát tiếp theo trong danh sách (Playlist)
+    const addedTracks = [firstTrack];
+    if (songList.length > 1) {
+      for (let i = 1; i < songList.length; i++) {
+        const nextQuery = songList[i];
+        try {
+          const nextTrack = await resolveTrackInfo(nextQuery, member.user);
+          if (nextTrack) {
+            session.musicQueue.songs.push(nextTrack);
+            addedTracks.push(nextTrack);
+          }
+        } catch (_) {}
+      }
+    }
+
+    if (statusMsg) {
+      if (addedTracks.length === 1) {
+        if (!isCurrentlyPlaying) {
+          await statusMsg.edit(`🎶 Đã tìm thấy và đang phát: **[${firstTrack.title}](${firstTrack.originalUrl})** theo yêu cầu của <@${member.id}>!`).catch(() => {});
+        } else {
+          await statusMsg.edit(`➕ Đã thêm vào hàng đợi: **[${firstTrack.title}](${firstTrack.originalUrl})** (Vị trí #${session.musicQueue.songs.length}) theo yêu cầu của <@${member.id}>!`).catch(() => {});
+        }
+      } else {
+        const listText = addedTracks.map((t, idx) => `**#${idx + 1}.** [${t.title}](${t.originalUrl}) (\`${t.duration}\`)`).join('\n');
+        const playlistEmbed = new EmbedBuilder()
+          .setTitle(`🎶 AI Đã Tự Động Nạp ${addedTracks.length} Bài Hát Vào Hàng Đợi!`)
+          .setDescription(listText)
+          .setColor(0x1DB954)
+          .setFooter({ text: `Yêu cầu bởi ${member.displayName || member.user.username}` });
+        await statusMsg.edit({ content: null, embeds: [playlistEmbed] }).catch(() => {});
       }
     }
     return true;
   } catch (err) {
-    console.error('Lỗi phát nhạc tự động:', err);
+    console.error('Lỗi phát nhạc AI tự động:', err);
     if (statusMsg) {
       await statusMsg.edit(`⚠️ Có lỗi khi bật nhạc: ${err.message}`).catch(() => {});
     }
     return false;
   }
+}
+
+// Alias tương thích
+async function playMusicFromNaturalRequest(query, member, channel, spokenReply = null) {
+  return playMultipleSongsFromNaturalRequest([query], member, channel, spokenReply);
 }
 
 function playNextInQueue(guildId) {
@@ -2189,11 +2261,13 @@ client.on('messageCreate', async (message) => {
       return;
     }
 
-    // TỰ ĐỘNG PHÁT HIỆN YÊU CẦU BẬT NHẠC TRONG CHAT THƯỜNG (Không cần gõ /play)
-    const naturalMusicQuery = extractMusicQuery(cleanText);
-    if (naturalMusicQuery && imageAttachments.size === 0) {
-      await playMusicFromNaturalRequest(naturalMusicQuery, message.member, message.channel);
-      return;
+    // TỰ ĐỘNG PHÁT HIỆN YÊU CẦU BẬT NHẠC THÔNG MINH BẰNG AI (AI Auto-DJ)
+    if (imageAttachments.size === 0) {
+      const musicSongList = await extractMusicListWithAI(cleanText);
+      if (musicSongList && musicSongList.length > 0) {
+        await playMultipleSongsFromNaturalRequest(musicSongList, message.member, message.channel);
+        return;
+      }
     }
 
     // TỰ ĐỘNG PHÁT HIỆN YÊU CẦU VẼ TRANH TRONG CHAT THƯỜNG (Không cần gõ /draw)

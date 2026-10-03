@@ -315,6 +315,7 @@ async function resolveTrackInfo(query, requestedBy) {
   let artist = '';
   let thumbnail = '';
   let originalUrl = query.trim();
+  let fallbackUrls = [];
   const candidates = [];
 
   // 0. Kiểm tra link file âm thanh trực tiếp (.mp3, .wav, .ogg, .m4a)
@@ -422,10 +423,14 @@ async function resolveTrackInfo(query, requestedBy) {
 
       if (results && results.length > 0) {
         const fullTracks = results.filter((t) => t.durationInSec && t.durationInSec > 45);
-        bestTrack =
-          fullTracks.find((t) => !/remix|bootleg|cover/i.test(t.name)) ||
-          fullTracks[0] ||
-          results[0];
+        const nonRemix = fullTracks.filter((t) => !/remix|bootleg|cover/i.test(t.name));
+        const sorted = [
+          ...nonRemix,
+          ...fullTracks.filter((t) => /remix|bootleg|cover/i.test(t.name)),
+          ...results,
+        ];
+        bestTrack = sorted[0];
+        fallbackUrls = sorted.slice(1, 4).map((t) => t.url);
         if (bestTrack) break;
       }
     } catch (err) {
@@ -441,6 +446,7 @@ async function resolveTrackInfo(query, requestedBy) {
     title: title || bestTrack.name,
     artist: artist || bestTrack.user?.name || 'Nghệ sĩ',
     url: bestTrack.url,
+    fallbackUrls: fallbackUrls || [],
     originalUrl: originalUrl.startsWith('http') ? originalUrl : bestTrack.url,
     thumbnail: thumbnail || bestTrack.thumbnail || '',
     duration: bestTrack.durationInSec
@@ -581,7 +587,24 @@ async function playNextSongInQueue(guildId) {
     if (nextSong.sourceType === 'direct') {
       resource = createAudioResource(nextSong.url);
     } else {
-      const stream = await play.stream(nextSong.url);
+      let stream = null;
+      const urlsToTry = [nextSong.url, ...(nextSong.fallbackUrls || [])];
+      for (const url of urlsToTry) {
+        try {
+          stream = await play.stream(url);
+          if (stream) break;
+        } catch (streamErr) {
+          console.warn(`[Stream Attempt Failed ${guildId}]: ${url} - ${streamErr.message}`);
+          if (streamErr.message.includes('404') || streamErr.message.includes('401')) {
+            scClientId = null;
+            await ensureSoundCloudClient();
+          }
+        }
+      }
+
+      if (!stream) {
+        throw new Error('Nguồn bài hát bị giới hạn bản quyền hoặc không khả dụng (404 Not Found)');
+      }
       resource = createAudioResource(stream.stream, { inputType: stream.type });
     }
 
@@ -604,8 +627,14 @@ async function playNextSongInQueue(guildId) {
     }
   } catch (err) {
     console.error(`[Play Error ${guildId}]:`, err.message);
+    let friendlyMessage = err.message;
+    if (err.message.includes('404') || err.message.includes('Got 404')) {
+      friendlyMessage = 'Bản nhạc này đã bị gỡ hoặc bị chặn bản quyền theo vùng (404 Not Found)';
+    } else if (err.message.includes('403') || err.message.includes('429')) {
+      friendlyMessage = 'Hệ thống bị giới hạn truy cập tạm thời (403/429)';
+    }
     if (musicQueue.textChannel) {
-      musicQueue.textChannel.send(`⚠️ Không thể phát bài **${nextSong.title}**: ${err.message}. Đang chuyển sang bài tiếp theo...`).catch(() => {});
+      musicQueue.textChannel.send(`⚠️ Không thể phát bài **${nextSong.title}**: ${friendlyMessage}. Đang tự động chuyển sang bài tiếp theo...`).catch(() => {});
     }
     playNextSongInQueue(guildId);
   }

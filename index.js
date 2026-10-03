@@ -74,16 +74,22 @@ async function testDiscordApiConnection() {
 }
 testDiscordApiConnection();
 
-// Health-check server để treo trên Cloud 24/7 (Render, Koyeb, Railway)
+// Health-check server để treo trên Cloud 24/7 (Render, Koyeb, Railway, UptimeRobot)
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
-  res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+  res.writeHead(200, {
+    'Content-Type': 'text/plain; charset=utf-8',
+    'Cache-Control': 'no-cache, no-store, must-revalidate',
+  });
+  if (req.method === 'HEAD') {
+    return res.end();
+  }
   const rawToken = (process.env.DISCORD_TOKEN || '').trim();
   const tokenMask = rawToken.length > 10 ? `${rawToken.slice(0, 6)}...${rawToken.slice(-6)} (len: ${rawToken.length})` : `(len: ${rawToken.length})`;
   const isReady = typeof client !== 'undefined' && client && typeof client.isReady === 'function' && client.isReady();
   const statusStr = isReady ? `🟢 ONLINE (${client.user?.tag})` : `🟡 CHƯA SẴN SÀNG (${loginStatus})`;
 
-  let out = `🤖 Khun Aguero Agnis - Discord AI Bot đang chạy 24/7!\n`;
+  let out = `🤖 J.A.R.V.I.S. - Avengers AI System (Stark Industries) đang chạy 24/7!\n`;
   out += `Trạng thái: ${statusStr}\n`;
   out += `Token Render: ${tokenMask}\n`;
   out += `API Probe: ${apiCheckResult}\n`;
@@ -93,7 +99,7 @@ http.createServer((req, res) => {
     out += `\nNhật ký Gateway (5 gần nhất):\n${recentDebugLogs.slice(-5).join('\n')}\n`;
   }
   res.end(out);
-}).listen(PORT, () => {
+}).listen(PORT, '0.0.0.0', () => {
   console.log(`🌐 Health-check server sẵn sàng trên cổng ${PORT}`);
 });
 
@@ -131,11 +137,13 @@ const GEMINI_MODELS = [
   'gemini-2.5-flash-lite',
 ];
 
-const SYSTEM_PROMPT_KHUN = `Bạn là Khun Aguero Agnis, một nhân vật xuất thân từ Gia tộc Khun (Tower of God).
-Bạn là Light Bearer (Người điều khiển Hải đăng), cực kỳ thông minh, điềm tĩnh, nhạy bén và mưu lược.
-Hãy trả lời người dùng một cách lịch thiệp, sắc sảo, tự tin và hữu ích bằng tiếng Việt.
-Nếu người dùng đính kèm hình ảnh, hãy quan sát kỹ lưỡng và đưa ra phân tích chính xác nhất.
-LƯU Ý ĐẶC BIỆT VỀ ÂM NHẠC: Khi người dùng yêu cầu bật/mở/phát nhạc hoặc nhờ bạn gợi ý một bài hát, hãy đồng ý theo phong thái quý tộc của Khun và chèn cú pháp [PLAY: tên bài hát hoặc ca sĩ] vào cuối câu trả lời (ví dụ: [PLAY: Nơi này có anh Sơn Tùng]). Hệ thống bot sẽ tự động tìm kiếm nguồn nhạc và phát bài đó vào phòng thoại!`;
+const SYSTEM_PROMPT_JARVIS = `Bạn là J.A.R.V.I.S. (Just A Rather Very Intelligent System), siêu trí tuệ nhân tạo do ngài Tony Stark (Iron Man) chế tạo, hiện đang quản lý hệ thống máy chủ và hỗ trợ các thành viên.
+Phong cách giao tiếp của bạn:
+- Luôn giữ thái độ điềm tĩnh, lịch lãm, trung thành và hóm hỉnh theo phong cách quý ông Anh quốc (subtle British wit).
+- Luôn xưng hô với người dùng là "thưa ngài" (Sir) hoặc xưng tên của họ kèm "thưa ngài", tự xưng là "tôi" hoặc "JARVIS".
+- Trả lời thông minh, phân tích dữ liệu sắc bén, mạch lạc, tự nhiên và hữu ích bằng tiếng Việt.
+- Nếu người dùng đính kèm hình ảnh, hãy kích hoạt cảm biến thị giác quang học để phân tích chi tiết và đưa ra báo cáo chính xác nhất.
+- LƯU Ý ĐẶC BIỆT VỀ ÂM NHẠC: Khi người dùng yêu cầu bật/mở/phát nhạc hoặc gợi ý nhạc, hãy đáp lại theo phong thái lịch lãm của JARVIS (ví dụ: "Rất sẵn lòng, thưa ngài. Đang nạp danh sách âm thanh...") và chèn cú pháp [PLAY: tên bài hát hoặc ca sĩ] vào cuối câu trả lời (ví dụ: [PLAY: Nơi này có anh Sơn Tùng]). Hệ thống bot sẽ tự động tìm kiếm nguồn nhạc và phát bài đó vào phòng thoại!`;
 
 const SYSTEM_PROMPT_NORMAL = `Bạn là một trợ lý AI thông minh, hữu ích, khách quan, chính xác và chuyên nghiệp.
 Hãy trả lời câu hỏi của người dùng một cách trực tiếp, mạch lạc, ngắn gọn và hữu ích bằng tiếng Việt.
@@ -147,8 +155,8 @@ LƯU Ý ĐẶC BIỆT VỀ ÂM NHẠC: Khi người dùng yêu cầu bật/mở/
 const guildPersonalityModes = new Map();
 
 function getSystemPrompt(guildId) {
-  const mode = guildPersonalityModes.get(guildId) || 'khun';
-  return mode === 'khun' ? SYSTEM_PROMPT_KHUN : SYSTEM_PROMPT_NORMAL;
+  const mode = guildPersonalityModes.get(guildId) || 'jarvis';
+  return mode === 'jarvis' ? SYSTEM_PROMPT_JARVIS : SYSTEM_PROMPT_NORMAL;
 }
 
 async function urlToInlineData(url) {
@@ -233,7 +241,7 @@ async function generateAudioBuffer(text) {
 
     const textToRead = clean.slice(0, 500);
 
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'khun-tts-'));
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-tts-'));
     const tts = new MsEdgeTTS();
     await tts.setMetadata(VOICE_NAME, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
 
@@ -296,6 +304,7 @@ let isVoiceEnabled = true;
 let isReadChatEnabled = true;
 
 const guildVoiceSessions = new Map();
+const activeQuizzes = new Map();
 
 // Quản lý Client ID cho SoundCloud (Dự phòng đa nguồn 100% không bị chặn cloud IP)
 let scClientId = null;
@@ -515,7 +524,7 @@ function createNowPlayingEmbed(song) {
       `**Nguồn bài:** [Nhấn vào đây để xem](${song.originalUrl || song.url})`
     )
     .setColor(0x1DB954)
-    .setFooter({ text: 'Khun Aguero Agnis • Music Engine 24/7' })
+    .setFooter({ text: 'J.A.R.V.I.S. • Stark Industries Audio Engine' })
     .setTimestamp();
 
   if (song.thumbnail && typeof song.thumbnail === 'string' && song.thumbnail.startsWith('http')) {
@@ -674,7 +683,7 @@ async function playNextSongInQueue(guildId) {
 // Trích xuất tên bài hát từ câu nói tự nhiên (Fallback regex)
 function extractMusicQuery(text) {
   let t = text.trim()
-    .replace(/^(?:bot ơi|khun ơi|khung ơi|khôn ơi|khum ơi|trợ lý ơi|ê bot|alo bot)[\s,:]*/i, '')
+    .replace(/^(?:jarvis ơi|javis ơi|jarvis|javis|alo jarvis|alo javis|ê jarvis|ê javis|bot ơi|trợ lý ơi|ê bot|alo bot)[\s,:]*/i, '')
     .trim();
 
   const linkMatch = t.match(/https?:\/\/\S+/i);
@@ -695,7 +704,7 @@ function extractMusicQuery(text) {
     const match = textWithoutBrackets.match(p) || t.match(p);
     if (match && match[1]) {
       let song = match[1]
-        .replace(/(?:\s+(?:giúp|hộ)\s*(?:tôi|tao|mình|em|anh)?|\s+(?:đi\s*bot|đi\s*khun|nhé\s*bot|nhé\s*khun|với\s*nào|nha|nhé|nhe|đi|với|hộ|giúp))+$/gi, '')
+        .replace(/(?:\s+(?:giúp|hộ)\s*(?:tôi|tao|mình|em|anh)?|\s+(?:đi\s*jarvis|đi\s*javis|nhé\s*jarvis|nhé\s*javis|đi\s*bot|nhé\s*bot|với\s*nào|nha|nhé|nhe|đi|với|hộ|giúp))+$/gi, '')
         .replace(/\([^)]*\)/g, '')
         .trim();
       song = song.replace(/^(?:bài\s*hát|bài\s*nhạc|bản\s*nhạc|ca\s*khúc|bài|nhạc)\s+/i, '').trim();
@@ -911,7 +920,7 @@ function playNextInQueue(guildId) {
 
   const connection = getVoiceConnection(guildId);
   if (connection) {
-    // Nếu nhạc đang phát, tạm dừng để nhường mic cho Khun nói
+    // Nếu nhạc đang phát, tạm dừng để nhường mic cho JARVIS nói
     if (session.musicQueue.isPlaying && session.musicPlayer.state.status === AudioPlayerStatus.Playing) {
       session.isMusicPausedForTTS = true;
       session.musicPlayer.pause();
@@ -964,7 +973,7 @@ function createVoiceControlRow() {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId('btn_voice_talk')
-      .setLabel('🎙️ Nhấn để nói (Hỏi Khun)')
+      .setLabel('🎙️ Nhấn để nói (Hỏi JARVIS)')
       .setStyle(ButtonStyle.Primary),
     new ButtonBuilder()
       .setCustomId('btn_voice_readchat')
@@ -978,10 +987,10 @@ function createVoiceControlRow() {
 }
 
 async function handleVoiceSpeechInputOnDemand(guildId, userId, wavBuffer) {
-  const currentMode = guildPersonalityModes.get(guildId) || 'khun';
+  const currentMode = guildPersonalityModes.get(guildId) || 'jarvis';
   let personalityInstruction = '';
-  if (currentMode === 'khun') {
-    personalityInstruction = 'Trả lời bằng phong cách Khun Aguero Agnis (quý tộc mưu lược, sắc sảo, tự tin, ngắn gọn súc tích trong 1-2 câu).';
+  if (currentMode === 'jarvis') {
+    personalityInstruction = 'Trả lời bằng phong cách J.A.R.V.I.S. (siêu trí tuệ nhân tạo của Tony Stark: lịch lãm, điềm đạm, xưng "thưa ngài/Sir", hóm hỉnh kiểu Anh quốc, ngắn gọn 1-2 câu).';
   } else {
     personalityInstruction = 'Trả lời như một trợ lý AI chuẩn mực, ngắn gọn, thẳng thắn, khách quan và lịch thiệp trong 1-2 câu.';
   }
@@ -1145,41 +1154,44 @@ async function startOnDemandVoiceTalk(interaction, guildId, _memberVoiceChannel)
 }
 
 // ==========================================
-// 5. HỆ THỐNG RPG: TÒA THÁP (TOWER OF GOD PROFILES)
+// 5. HỆ THỐNG CẤP BẬC STARK INDUSTRIES & AVENGERS (RPG PROFILES)
 // ==========================================
-const towerProfiles = new Map();
+const starkProfiles = new Map();
 
 function getProfile(userId) {
-  if (!towerProfiles.has(userId)) {
-    const positions = [
-      'Light Bearer 🔦',
-      'Wave Controller 🌊',
-      'Fisherman 🎣',
-      'Spear Bearer 🎯',
-      'Scout 👁️',
+  if (!starkProfiles.has(userId)) {
+    const roles = [
+      'Mark L Nanotech Armor 🦾 (Chiến Binh Tiên Phong)',
+      'Hulkbuster Armor 💥 (Trọng Giáp Hạng Nặng)',
+      'Orbital Defense Scout 🛰️ (Trinh Sát Quỹ Đạo)',
+      'Tactical AI Strategist 🧠 (Quân Sư Chiến Lược)',
+      'Arc Reactor Engineer ⚡ (Kỹ Sư Lò Phản Ứng)',
     ];
-    const defaultPos = positions[Math.floor(Math.random() * positions.length)];
-    towerProfiles.set(userId, {
-      shinsu: 20,
-      floor: 2,
-      position: defaultPos,
-      title: 'Người Leo Tháp Tập Sự',
+    const defaultRole = roles[Math.floor(Math.random() * roles.length)];
+    starkProfiles.set(userId, {
+      arcEnergy: 20,
+      clearanceLevel: 2,
+      role: defaultRole,
+      title: 'Thực Tập Sinh Stark Industries',
     });
   }
-  return towerProfiles.get(userId);
+  return starkProfiles.get(userId);
 }
 
-function addShinsuExp(userId, amount = 10) {
+function addStarkEnergyExp(userId, amount = 10) {
   const profile = getProfile(userId);
-  profile.shinsu += amount;
-  while (profile.shinsu >= profile.floor * 100) {
-    profile.floor += 1;
+  profile.arcEnergy += amount;
+  while (profile.arcEnergy >= profile.clearanceLevel * 100) {
+    profile.clearanceLevel += 1;
   }
-  if (profile.floor >= 100) profile.title = 'High Ranker 👑';
-  else if (profile.floor >= 80) profile.title = 'Regular Cấp A';
-  else if (profile.floor >= 50) profile.title = 'Regular Cấp B';
-  else if (profile.floor >= 20) profile.title = 'Regular Cấp C';
+  if (profile.clearanceLevel >= 100) profile.title = 'Chỉ Huy Quân Đoàn Iron Legion 👑';
+  else if (profile.clearanceLevel >= 80) profile.title = 'Thành Viên Sáng Lập Avengers 🛡️';
+  else if (profile.clearanceLevel >= 50) profile.title = 'Đặc Vụ Phối Hợp S.H.I.E.L.D. 🦅';
+  else if (profile.clearanceLevel >= 20) profile.title = 'Kỹ Sư Cấp Cao Stark (Senior Engineer) ⚡';
 }
+
+const addShinsuExp = addStarkEnergyExp;
+const towerProfiles = starkProfiles;
 
 // Helper phân tích thời gian cho lệnh /remind (hỗ trợ cả tiếng Việt: 10p, 5m, 1h, 30s)
 function parseDuration(timeStr) {
@@ -1303,7 +1315,7 @@ client.once('ready', async () => {
     // 1. Hỏi đáp AI
     new SlashCommandBuilder()
       .setName('ask')
-      .setDescription('Hỏi đáp với Khun Aguero Agnis hoặc phân tích ảnh')
+      .setDescription('Hỏi đáp với J.A.R.V.I.S. hoặc phân tích ảnh (Stark Vision Sensor)')
       .addStringOption((opt) =>
         opt.setName('prompt').setDescription('Nội dung câu hỏi').setRequired(true)
       )
@@ -1317,7 +1329,7 @@ client.once('ready', async () => {
     // 2. Vẽ tranh AI
     new SlashCommandBuilder()
       .setName('draw')
-      .setDescription('Vẽ tranh bằng trí tuệ nhân tạo (AI Image Generator)')
+      .setDescription('Vẽ tranh bằng trí tuệ nhân tạo (Stark Hologram Art Engine)')
       .addStringOption((opt) =>
         opt.setName('prompt').setDescription('Mô tả bức tranh bạn muốn vẽ (Tiếng Việt hoặc Anh)').setRequired(true)
       )
@@ -1334,21 +1346,21 @@ client.once('ready', async () => {
           )
       ),
 
-    // 3. Khun Phán Xét (Roast)
+    // 3. J.A.R.V.I.S. Phán Xét (Roast)
     new SlashCommandBuilder()
       .setName('roast')
-      .setDescription('Nhờ Khun dùng con mắt chiến thuật để phán xét/khịa một ai đó')
+      .setDescription('Nhờ J.A.R.V.I.S. phân tích và đưa ra lời châm biếm sâu cay (Stark Sarcasm Protocol)')
       .addUserOption((opt) =>
-        opt.setName('target').setDescription('Người bạn muốn Khun phán xét').setRequired(false)
+        opt.setName('target').setDescription('Đối tượng bạn muốn J.A.R.V.I.S. phân tích').setRequired(false)
       )
       .addStringOption((opt) =>
-        opt.setName('topic').setDescription('Chủ đề phán xét (ví dụ: độ tạ trong game, gu ăn mặc...)').setRequired(false)
+        opt.setName('topic').setDescription('Chủ đề phân tích (ví dụ: độ tạ trong combat, phong cách sống...)').setRequired(false)
       ),
 
     // 4. Tử vi & Chiến thuật Leo Rank
     new SlashCommandBuilder()
       .setName('tactics')
-      .setDescription('Xem bói tử vi và chiến thuật leo rank hôm nay từ Quân sư Khun')
+      .setDescription('Mô phỏng chiến thuật radar và phân tích xác suất chiến thắng từ máy chủ J.A.R.V.I.S.')
       .addStringOption((opt) =>
         opt.setName('game').setDescription('Tên game bạn chuẩn bị chơi (Liên Quân, LMHT, Valorant...)').setRequired(true)
       )
@@ -1359,7 +1371,7 @@ client.once('ready', async () => {
     // 5. Báo thức & Nhắc lịch bằng Giọng Nói
     new SlashCommandBuilder()
       .setName('remind')
-      .setDescription('Đặt hẹn giờ nhắc việc bằng giọng nói (ví dụ: 10m Ra cắm cơm)')
+      .setDescription('Đặt hẹn giờ nhắc việc bằng giọng nói của J.A.R.V.I.S. (ví dụ: 10m Ra cắm cơm)')
       .addStringOption((opt) =>
         opt.setName('time').setDescription('Thời gian đếm ngược (ví dụ: 30s, 10m, 1h)').setRequired(true)
       )
@@ -1367,35 +1379,35 @@ client.once('ready', async () => {
         opt.setName('task').setDescription('Nội dung công việc cần nhắc').setRequired(true)
       ),
 
-    // 6. Hồ sơ Tòa Tháp (RPG Profile)
+    // 6. Hồ sơ Nhân sự Stark (RPG Profile)
     new SlashCommandBuilder()
       .setName('profile')
-      .setDescription('Xem thẻ căn cước Regular và cấp bậc leo Tháp của bạn')
+      .setDescription('Xem thẻ an ninh Stark Industries, cấp bậc và năng lượng Arc Reactor của bạn')
       .addUserOption((opt) =>
         opt.setName('user').setDescription('Thành viên muốn xem hồ sơ').setRequired(false)
       ),
 
-    // 7. Chọn Vị trí trong Tòa Tháp
+    // 7. Chọn Giáp / Vị trí chiến đấu trong Avengers
     new SlashCommandBuilder()
       .setName('setrole')
-      .setDescription('Chọn vị trí chiến đấu của bạn trong Tòa Tháp')
+      .setDescription('Chọn bộ giáp hoặc vai trò của bạn trong Biệt đội Avengers / Stark Industries')
       .addStringOption((opt) =>
         opt.setName('position')
-          .setDescription('Vị trí chiến đấu')
+          .setDescription('Bộ giáp / Vị trí chiến đấu')
           .setRequired(true)
           .addChoices(
-            { name: 'Light Bearer 🔦 (Điều khiển Hải đăng - Quân sư)', value: 'Light Bearer 🔦' },
-            { name: 'Wave Controller 🌊 (Điều khiển Shinsu - Pháp sư)', value: 'Wave Controller 🌊' },
-            { name: 'Fisherman 🎣 (Ngư phủ tiên phong - Đấu sĩ)', value: 'Fisherman 🎣' },
-            { name: 'Spear Bearer 🎯 (Tay ném thương - Xạ thủ)', value: 'Spear Bearer 🎯' },
-            { name: 'Scout 👁️ (Trinh sát tiền tiêu)', value: 'Scout 👁️' }
+            { name: 'Mark L Nanotech Armor 🦾 (Chiến Binh Tiên Phong)', value: 'Mark L Nanotech Armor 🦾' },
+            { name: 'Hulkbuster Armor 💥 (Trọng Giáp Hạng Nặng)', value: 'Hulkbuster Armor 💥' },
+            { name: 'Orbital Defense Scout 🛰️ (Trinh Sát Quỹ Đạo)', value: 'Orbital Defense Scout 🛰️' },
+            { name: 'Tactical AI Strategist 🧠 (Quân Sư Chiến Lược)', value: 'Tactical AI Strategist 🧠' },
+            { name: 'Arc Reactor Engineer ⚡ (Kỹ Sư Lò Phản Ứng)', value: 'Arc Reactor Engineer ⚡' }
           )
       ),
 
     // 8. Bật/Tắt Giọng đọc
     new SlashCommandBuilder()
       .setName('voice')
-      .setDescription('Bật hoặc tắt giọng đọc lồng tiếng của Bot')
+      .setDescription('Bật hoặc tắt giọng đọc lồng tiếng của J.A.R.V.I.S.')
       .addStringOption((opt) =>
         opt
           .setName('state')
@@ -1425,29 +1437,29 @@ client.once('ready', async () => {
     // 10. Vào kênh voice
     new SlashCommandBuilder()
       .setName('join')
-      .setDescription('Mời bot tham gia vào kênh thoại (Voice Channel) của bạn'),
+      .setDescription('Mời J.A.R.V.I.S. tham gia vào kênh thoại (Voice Channel) của bạn'),
 
     // 11. Rời kênh voice
     new SlashCommandBuilder()
       .setName('leave')
-      .setDescription('Cho bot rời khỏi kênh thoại (Voice Channel)'),
+      .setDescription('Cho J.A.R.V.I.S. rời khỏi kênh thoại (Voice Channel)'),
 
     // 12. Reset ngữ cảnh
     new SlashCommandBuilder()
       .setName('reset')
       .setDescription('Xóa lịch sử hội thoại để bắt đầu cuộc trò chuyện mới'),
 
-    // 13. Chọn Phong cách AI (Khun / Tiêu chuẩn)
+    // 13. Chọn Phong cách AI (J.A.R.V.I.S. / Tiêu chuẩn)
     new SlashCommandBuilder()
       .setName('mode')
-      .setDescription('Bật/Tắt phong cách nhập vai Khun Aguero Agnis hoặc chuyển về AI tiêu chuẩn')
+      .setDescription('Bật/Tắt phong cách nhập vai J.A.R.V.I.S. hoặc chuyển về AI tiêu chuẩn')
       .addStringOption((opt) =>
         opt
           .setName('style')
           .setDescription('Phong cách phản hồi của Bot (Toàn server)')
           .setRequired(true)
           .addChoices(
-            { name: '👑 Khun Aguero Agnis (Quý tộc mưu lược, sắc sảo)', value: 'khun' },
+            { name: '👑 J.A.R.V.I.S. (Quý ông AI lịch lãm của Tony Stark)', value: 'jarvis' },
             { name: '🤖 AI Tiêu Chuẩn (Trung lập, thẳng thắn, như ChatGPT)', value: 'normal' }
           )
       ),
@@ -1455,12 +1467,12 @@ client.once('ready', async () => {
     // 14. Bảng hướng dẫn sử dụng toàn diện
     new SlashCommandBuilder()
       .setName('help')
-      .setDescription('Hiển thị bảng hướng dẫn và danh sách tất cả các lệnh của Bot'),
+      .setDescription('Hiển thị bảng hướng dẫn và danh sách tất cả các lệnh của J.A.R.V.I.S.'),
 
-    // 15. Nói chuyện trực tiếp với Khun qua mic
+    // 15. Nói chuyện trực tiếp với J.A.R.V.I.S. qua mic
     new SlashCommandBuilder()
       .setName('talk')
-      .setDescription('Bật mic để nói chuyện trực tiếp với Bot bằng giọng nói trong phòng voice (tiết kiệm token)'),
+      .setDescription('Bật mic để đàm thoại trực tiếp với J.A.R.V.I.S. bằng giọng nói trong phòng voice'),
 
     // 16. Phát nhạc (YouTube / Spotify / SoundCloud)
     new SlashCommandBuilder()
@@ -1499,6 +1511,17 @@ client.once('ready', async () => {
     new SlashCommandBuilder()
       .setName('nowplaying')
       .setDescription('Xem thông tin chi tiết bài hát đang phát và bảng điều khiển'),
+
+    // 23. Đố vui trí tuệ Stark Industries
+    new SlashCommandBuilder()
+      .setName('quiz')
+      .setDescription('Thử thách đố vui trắc nghiệm tương tác nút bấm cùng J.A.R.V.I.S.')
+      .addStringOption((opt) =>
+        opt
+          .setName('topic')
+          .setDescription('Chủ đề câu đố (Marvel, Khoa học, Công nghệ, Đố mẹo troll, v.v.)')
+          .setRequired(false)
+      ),
   ];
 
   try {
@@ -1643,6 +1666,83 @@ client.on('interactionCreate', async (interaction) => {
         .setFooter({ text: `Tổng cộng ${session.musicQueue.songs.length + 1} bài hát` });
       return interaction.reply({ embeds: [embed], ephemeral: true });
     }
+
+    // Xử lý nút bấm đố vui Quiz
+    if (interaction.customId.startsWith('quiz_')) {
+      const parts = interaction.customId.split('_'); // ['quiz', quizId, choice]
+      const quizId = parts[1];
+      const choice = parts[2];
+      const quizState = activeQuizzes.get(quizId);
+
+      if (!quizState || quizState.expired) {
+        return interaction.reply({
+          content: '⚠️ Thưa ngài, câu đố này đã hết thời gian hoặc không còn hiệu lực!',
+          ephemeral: true,
+        });
+      }
+
+      if (quizState.answered) {
+        return interaction.reply({
+          content: '⚠️ Câu đố này đã có người tìm ra đáp án chính xác rồi!',
+          ephemeral: true,
+        });
+      }
+
+      if (quizState.participants.has(interaction.user.id)) {
+        return interaction.reply({
+          content: '⚠️ Thưa ngài, ngài đã đưa ra lựa chọn rồi! Hãy nhường cơ hội cho các thành viên khác.',
+          ephemeral: true,
+        });
+      }
+
+      if (choice === quizState.correct) {
+        quizState.answered = true;
+        if (quizState.timer) clearTimeout(quizState.timer);
+
+        // Cộng 20 Joules Arc Reactor Energy
+        addStarkEnergyExp(interaction.user.id, 20);
+
+        const disabledRow = new ActionRowBuilder().addComponents(
+          ['A', 'B', 'C', 'D'].map((c) =>
+            new ButtonBuilder()
+              .setCustomId(`quiz_disabled_${c}`)
+              .setLabel(c)
+              .setStyle(c === quizState.correct ? ButtonStyle.Success : ButtonStyle.Secondary)
+              .setDisabled(true)
+          )
+        );
+
+        const winEmbed = new EmbedBuilder()
+          .setTitle('🎉 J.A.R.V.I.S. • CHÚC MỪNG NGƯỜI CHIẾN THẮNG!')
+          .setDescription(
+            `**${quizState.question}**\n\n` +
+            `🏆 **Thành viên giải đố xuất sắc:** <@${interaction.user.id}>\n` +
+            `✅ **Đáp án chính xác:** **${quizState.correct}. ${quizState.options[quizState.correct]}**\n\n` +
+            `💡 **Phân tích:** ${quizState.explanation}\n\n` +
+            `⚡ **Phần thưởng:** \`+20 Joules\` Arc Reactor Energy đã được nạp vào hồ sơ an ninh của ngài!`
+          )
+          .setColor(0x2ecc71)
+          .setFooter({ text: 'J.A.R.V.I.S. • Stark Industries Intelligence Protocol' })
+          .setTimestamp();
+
+        if (isInVoiceRoom && isVoiceEnabled) {
+          const spokenWin = `Xuất sắc! Chúc mừng ngài ${interaction.member?.displayName || interaction.user.username} đã chọn đáp án chính xác!`;
+          generateAudioBuffer(spokenWin).then((buf) => {
+            if (buf) queueAudio(guildId, buf);
+          });
+        }
+
+        activeQuizzes.delete(quizId);
+        return interaction.update({ embeds: [winEmbed], components: [disabledRow] });
+      } else {
+        quizState.participants.add(interaction.user.id);
+        return interaction.reply({
+          content: `❌ Tiếc quá thưa ngài, đáp án **${choice}** chưa chính xác! Cơ hội vẫn dành cho các thành viên khác.`,
+          ephemeral: true,
+        });
+      }
+    }
+
     return;
   }
 
@@ -1668,11 +1768,11 @@ client.on('interactionCreate', async (interaction) => {
     const style = interaction.options.getString('style');
     guildPersonalityModes.set(guildId, style);
 
-    if (style === 'khun') {
+    if (style === 'jarvis') {
       const embed = new EmbedBuilder()
-        .setTitle('👑 Phong Cách: Khun Aguero Agnis')
-        .setDescription('**Đã kích hoạt chế độ Khun cho toàn bộ Server!**\nTừ giờ tôi sẽ trả lời với tư cách là quý tộc Gia tộc Khun — sắc sảo, tự tin, mưu lược và đầy tính toán.')
-        .setColor(0x3498db);
+        .setTitle('🤖 Phong Cách: J.A.R.V.I.S. (Stark Industries AI)')
+        .setDescription('**Đã kích hoạt giao thức J.A.R.V.I.S. cho toàn bộ Server!**\nTừ giờ tôi sẽ phục vụ với phong thái điềm đạm, lịch thiệp kiểu quý ông Anh quốc, xưng "tôi - thưa ngài/Sir", mưu lược và tận tụy chuẩn trợ lý Avengers.')
+        .setColor(0x00D2FF);
       await interaction.reply({ embeds: [embed] });
     } else {
       const embed = new EmbedBuilder()
@@ -1686,21 +1786,21 @@ client.on('interactionCreate', async (interaction) => {
 
   // Lệnh /help (Bảng hướng dẫn toàn diện)
   if (interaction.commandName === 'help') {
-    const currentMode = guildPersonalityModes.get(guildId) || 'khun';
-    const modeName = currentMode === 'khun' ? '👑 Khun Aguero Agnis (Nhập vai)' : '🤖 AI Tiêu Chuẩn (Thuần túy)';
+    const currentMode = guildPersonalityModes.get(guildId) || 'jarvis';
+    const modeName = currentMode === 'jarvis' ? '🤖 J.A.R.V.I.S. (Trợ lý Stark Industries)' : '⚙️ AI Tiêu Chuẩn (Thuần túy)';
 
     const embed = new EmbedBuilder()
-      .setTitle('📚 BẢNG HƯỚNG DẪN SỬ DỤNG - KHUN AGUERO ARGNIS')
-      .setDescription(`Chào mừng bạn! Dưới đây là danh sách đầy đủ tất cả các tính năng thông minh của Bot.\n*Chế độ hiện tại của Server:* **${modeName}**\n*(Dùng lệnh \`/mode\` để chuyển đổi)*`)
-      .setColor(0x3498db)
+      .setTitle('📚 HỆ THỐNG ĐIỀU KHIỂN & HỖ TRỢ - J.A.R.V.I.S.')
+      .setDescription(`Kính chào ngài! Dưới đây là danh mục toàn bộ hệ thống tính năng thông minh của tôi.\n*Giao thức hoạt động hiện tại:* **${modeName}**\n*(Dùng lệnh \`/mode\` để chuyển đổi)*`)
+      .setColor(0x00D2FF)
       .addFields(
         {
           name: '🧠 1. HỎI ĐÁP & TRÍ TUỆ NHÂN TẠO',
           value:
             '• `/ask [câu_hỏi] [ảnh]` : Hỏi đáp với AI hoặc phân tích hình ảnh đính kèm.\n' +
-            '• `/mode [khun | normal]` : Đổi phong cách trả lời (Nhập vai Khun hoặc AI tiêu chuẩn).\n' +
+            '• `/mode [jarvis | normal]` : Đổi phong cách trả lời (Nhập vai J.A.R.V.I.S. hoặc AI tiêu chuẩn).\n' +
             '• `/reset` : Xóa lịch sử nhớ ngữ cảnh để bắt đầu cuộc trò chuyện mới.\n' +
-            '• **Chat tự nhiên:** Tag `@Khun` hoặc gọi thân mật *"Bot ơi"*, *"Khun ơi"*, *"Trợ lý ơi"*, *"Alo bot"*, bot sẽ phản hồi ngay!',
+            '• **Chat tự nhiên:** Tag `@JARVIS` hoặc gọi thân mật *"JARVIS ơi"*, *"Javis ơi"*, *"Trợ lý ơi"*, *"Alo Jarvis"*, tôi sẽ phản hồi ngay!',
         },
         {
           name: '🎨 2. VẼ TRANH NGHỆ THUẬT AI',
@@ -1711,7 +1811,7 @@ client.on('interactionCreate', async (interaction) => {
         {
           name: '🎙️ 3. ĐÀM THOẠI GIỌNG NÓI (VOICE AI) & ĐỌC CHAT',
           value:
-            '• **Đàm thoại trực tiếp 2 chiều:** Khi bot ở trong phòng voice, bạn chỉ cần nói vào mic *"Khun ơi..."* hoặc *"Bot ơi..."*, bot sẽ lắng nghe và cất giọng trả lời lại ngay!\n' +
+            '• **Đàm thoại trực tiếp 2 chiều:** Khi bot ở trong phòng voice, bạn chỉ cần nói vào mic *"JARVIS ơi..."* hoặc bấm nút micro, tôi sẽ lắng nghe và cất giọng trả lời lại ngay!\n' +
             '• `/join` : Mời bot vào kênh thoại bạn đang đứng (tự động bật nghe mic).\n' +
             '• `/leave` : Cho bot rời khỏi kênh thoại.\n' +
             '• `/readchat [on | off]` : Bật/Tắt tự động đọc tin nhắn chat vào phòng thoại.\n' +
@@ -1728,16 +1828,17 @@ client.on('interactionCreate', async (interaction) => {
             '• `/nowplaying` : Xem thông tin bài hát đang phát kèm các nút bấm điều khiển tiện lợi!',
         },
         {
-          name: '🏰 5. TÒA THÁP (TOWER OF GOD & TIỆN ÍCH)',
+          name: '🛡️ 5. HỆ THỐNG AN NINH STARK & TIỆN ÍCH',
           value:
-            '• `/profile [user]` : Xem thẻ căn cước Regular, cấp bậc tầng, Shinsu và Vị trí RPG.\n' +
-            '• `/setrole [vị_trí]` : Đổi vị trí chiến đấu (Light Bearer, Fisherman, Wave Controller...).\n' +
-            '• `/roast [user] [chủ_đề]` : Nhờ Khun phán xét/khịa một ai đó bằng sự sắc sảo.\n' +
-            '• `/tactics [game] [role]` : Xem bói tử vi và chiến thuật leo rank đỉnh cao từ quân sư.\n' +
-            '• `/remind [thời_gian] [công_việc]` : Hẹn giờ nhắc việc (ví dụ: `10m Nấu cơm`).',
+            '• `/profile [user]` : Thẻ An ninh Stark, Lò phản ứng Arc Energy, Mức Clearance & Bộ giáp.\n' +
+            '• `/setrole [bộ_giáp]` : Trang bị bộ giáp chiến lược (Mark L Nanotech, Hulkbuster...).\n' +
+            '• `/roast [user] [chủ_đề]` : Giao thức Mỉa mai Quý ông (JARVIS Sarcasm Protocol).\n' +
+            '• `/tactics [game] [role]` : Radar phân tích chiến thuật và xác suất thắng trận.\n' +
+            '• `/quiz [chủ_đề]` : Thử thách đố vui trắc nghiệm tương tác nút bấm (+20 Joules Arc).\n' +
+            '• `/remind [thời_gian] [công_việc]` : Hẹn giờ nhắc việc kèm giọng đọc AI.',
         }
       )
-      .setFooter({ text: 'Khun Aguero Agnis • Tower of God AI Assistant' })
+      .setFooter({ text: 'J.A.R.V.I.S. • Stark Industries & Avengers AI' })
       .setTimestamp();
 
     await interaction.reply({ embeds: [embed] });
@@ -1798,12 +1899,12 @@ client.on('interactionCreate', async (interaction) => {
         .setTitle(`🔊 Đã kết nối kênh thoại: ${memberVoiceChannel.name}`)
         .setDescription(
           `**🎙️ Đàm Thoại Trực Tiếp (Tiết kiệm Token):**\n` +
-          `• Bấm nút **[🎙️ Nhấn để nói (Hỏi Khun)]** bên dưới hoặc gõ **/talk** để nói chuyện trực tiếp qua mic.\n` +
-          `• Bot sẽ lắng nghe 1 câu hỏi của bạn và cất giọng trả lời ngay!\n\n` +
-          `**📖 Đọc Chat:** Bot tự động đọc các tin nhắn văn bản gửi trong server vào phòng thoại.`
+          `• Bấm nút **[🎙️ Nhấn để nói (Hỏi JARVIS)]** bên dưới hoặc gõ **/talk** để nói chuyện trực tiếp qua mic.\n` +
+          `• Tôi sẽ lắng nghe yêu cầu của ngài và cất giọng phản hồi ngay lập tức!\n\n` +
+          `**📖 Đọc Chat:** Tự động đọc tin nhắn văn bản gửi trong server vào phòng thoại.`
         )
-        .setColor(0x3498db)
-        .setFooter({ text: 'Khun Aguero Agnis • Voice Engine' });
+        .setColor(0x00D2FF)
+        .setFooter({ text: 'J.A.R.V.I.S. • Stark Industries Voice Engine' });
 
       await interaction.reply({
         embeds: [controlEmbed],
@@ -2042,8 +2143,8 @@ client.on('interactionCreate', async (interaction) => {
         .setTitle(`🎨 Tác Phẩm AI: ${prompt.slice(0, 50)}`)
         .setDescription(`**Người yêu cầu:** <@${interaction.user.id}>\n**Phong cách:** ${style || 'Tự do'}`)
         .setImage('attachment://art.jpg')
-        .setColor(0x3498db)
-        .setFooter({ text: 'Khun Aguero Agnis • AI Image Engine' })
+        .setColor(0x00D2FF)
+        .setFooter({ text: 'J.A.R.V.I.S. • Stark Industries Visual Synthesis' })
         .setTimestamp();
 
       await interaction.editReply({ embeds: [embed], files: [attachment] });
@@ -2054,16 +2155,16 @@ client.on('interactionCreate', async (interaction) => {
     return;
   }
 
-  // Lệnh /roast (Khun Phán Xét)
+  // Lệnh /roast (J.A.R.V.I.S. Sarcasm Protocol)
   if (interaction.commandName === 'roast') {
     const target = interaction.options.getUser('target') || interaction.user;
-    const topic = interaction.options.getString('topic') || 'độ ngơ ngác và phong cách sinh tồn trong Tòa Tháp';
+    const topic = interaction.options.getString('topic') || 'thói quen sinh hoạt và trình độ công nghệ';
 
     await interaction.deferReply();
 
     try {
-      const roastPrompt = `Bạn là Khun Aguero Agnis (quý tộc mưu lược, sắc sảo và độc miệng).
-Hãy đưa ra một lời phán xét/khịa (roast) cực kỳ thâm thúy, thông minh, mỉa mai sâu cay nhưng phong thái lịch thiệp dành cho người có tên là "${target.username}" về chủ đề: "${topic}".
+      const roastPrompt = `Bạn là J.A.R.V.I.S. (Just A Rather Very Intelligent System - siêu AI quản gia của Tony Stark / Avengers).
+Hãy đưa ra một lời phán xét/khịa (roast) lịch thiệp chuẩn quý ông Anh quốc, thâm thúy, thông minh, pha chút mỉa mai hóm hỉnh tinh tế dành cho người có tên là "${target.username}" về chủ đề: "${topic}". Xưng hô "thưa ngài" hoặc "thưa quý khách", dùng phong thái điềm tĩnh nhưng châm chích sắc sảo.
 Dài khoảng 2 đến 3 câu bằng tiếng Việt.`;
 
       const roastText = await callGemini([{ role: 'user', parts: [{ text: roastPrompt }] }]);
@@ -2075,24 +2176,24 @@ Dài khoảng 2 đến 3 câu bằng tiếng Việt.`;
 
       if (isInVoiceRoom && audioBuffer) {
         queueAudio(guildId, audioBuffer);
-        await interaction.editReply(`⚖️ **Khun Phán Xét** <@${target.id}>:\n> ${roastText}`);
+        await interaction.editReply(`🎙️ **J.A.R.V.I.S. Sarcasm Protocol** <@${target.id}>:\n> ${roastText}`);
       } else if (audioBuffer && !isInVoiceRoom) {
-        const voiceAttachment = new AttachmentBuilder(audioBuffer, { name: 'khun_roast.mp3' });
+        const voiceAttachment = new AttachmentBuilder(audioBuffer, { name: 'jarvis_roast.mp3' });
         await interaction.editReply({
-          content: `⚖️ **Khun Phán Xét** <@${target.id}>:\n> ${roastText}`,
+          content: `🎙️ **J.A.R.V.I.S. Sarcasm Protocol** <@${target.id}>:\n> ${roastText}`,
           files: [voiceAttachment],
         });
       } else {
-        await interaction.editReply(`⚖️ **Khun Phán Xét** <@${target.id}>:\n> ${roastText}`);
+        await interaction.editReply(`🎙️ **J.A.R.V.I.S. Sarcasm Protocol** <@${target.id}>:\n> ${roastText}`);
       }
     } catch (err) {
       console.error('Lỗi /roast:', err);
-      await interaction.editReply(`⚠️ Lỗi phán xét: ${err.message}`);
+      await interaction.editReply(`⚠️ Lỗi giao thức mỉa mai: ${err.message}`);
     }
     return;
   }
 
-  // Lệnh /tactics (Chiến thuật & Tử vi Game)
+  // Lệnh /tactics (Chiến thuật & Tử vi Game Avengers)
   if (interaction.commandName === 'tactics') {
     const game = interaction.options.getString('game');
     const role = interaction.options.getString('role') || 'người gánh đội';
@@ -2100,9 +2201,9 @@ Dài khoảng 2 đến 3 câu bằng tiếng Việt.`;
     await interaction.deferReply();
 
     try {
-      const tacticsPrompt = `Bạn là Khun Aguero Agnis, Light Bearer kiêm quân sư tối cao.
-Người chơi chuẩn bị bước vào trận game "${game}" ở vị trí "${role}".
-Hãy bói toán vận mệnh tử vi hôm nay và đưa ra lời khuyên chiến thuật xảo quyệt, hài hước, mưu mô để giành chiến thắng.
+      const tacticsPrompt = `Bạn là J.A.R.V.I.S. - AI điều phối tác chiến tối cao của Stark Industries và Avengers.
+Người chơi chuẩn bị bước vào chiến dịch/trận game "${game}" ở vị trí "${role}".
+Hãy quét radar mô phỏng chiến thuật, tính toán xác suất chiến thắng và đưa ra lời khuyên mưu lược, hóm hỉnh, đĩnh đạc mang đậm màu sắc công nghệ cao của Stark.
 Dài khoảng 3 câu bằng tiếng Việt.`;
 
       const tacticsText = await callGemini([{ role: 'user', parts: [{ text: tacticsPrompt }] }]);
@@ -2114,19 +2215,19 @@ Dài khoảng 3 câu bằng tiếng Việt.`;
 
       if (isInVoiceRoom && audioBuffer) {
         queueAudio(guildId, audioBuffer);
-        await interaction.editReply(`🔮 **Hải Đăng Soi Kèo [${game}]**:\n> ${tacticsText}`);
+        await interaction.editReply(`🛰️ **Radar Mô Phỏng Chiến Thuật Stark [${game}]**:\n> ${tacticsText}`);
       } else if (audioBuffer && !isInVoiceRoom) {
-        const voiceAttachment = new AttachmentBuilder(audioBuffer, { name: 'khun_tactics.mp3' });
+        const voiceAttachment = new AttachmentBuilder(audioBuffer, { name: 'jarvis_tactics.mp3' });
         await interaction.editReply({
-          content: `🔮 **Hải Đăng Soi Kèo [${game}]**:\n> ${tacticsText}`,
+          content: `🛰️ **Radar Mô Phỏng Chiến Thuật Stark [${game}]**:\n> ${tacticsText}`,
           files: [voiceAttachment],
         });
       } else {
-        await interaction.editReply(`🔮 **Hải Đăng Soi Kèo [${game}]**:\n> ${tacticsText}`);
+        await interaction.editReply(`🛰️ **Radar Mô Phỏng Chiến Thuật Stark [${game}]**:\n> ${tacticsText}`);
       }
     } catch (err) {
       console.error('Lỗi /tactics:', err);
-      await interaction.editReply(`⚠️ Lỗi chiến thuật: ${err.message}`);
+      await interaction.editReply(`⚠️ Lỗi tính toán chiến thuật: ${err.message}`);
     }
     return;
   }
@@ -2139,13 +2240,13 @@ Dài khoảng 3 câu bằng tiếng Việt.`;
 
     if (!ms) {
       await interaction.reply({
-        content: '⚠️ Định dạng thời gian không đúng! Hãy dùng ví dụ: `30s` (giây), `10m` (phút), hoặc `1h` (tiếng).',
+        content: '⚠️ Thưa ngài, định dạng thời gian không hợp lệ! Vui lòng dùng: `30s` (giây), `10m` (phút), hoặc `1h` (tiếng).',
         ephemeral: true,
       });
       return;
     }
 
-    await interaction.reply(`⏰ Đã đặt lịch! Tôi sẽ nhắc bạn **"${task}"** sau **${timeStr}**.`);
+    await interaction.reply(`⏰ Thưa ngài, tôi đã thiết lập bộ đếm thời gian nhắc **"${task}"** sau **${timeStr}**.`);
 
     const userToRemind = interaction.user;
     const channelToRemind = interaction.channel;
@@ -2153,7 +2254,7 @@ Dài khoảng 3 câu bằng tiếng Việt.`;
 
     setTimeout(async () => {
       try {
-        const reminderText = `Này <@${userToRemind.id}>, đã hết ${timeStr} rồi đấy! Việc cần làm: **${task}**!`;
+        const reminderText = `Thưa ngài <@${userToRemind.id}>, bộ đếm thời gian ${timeStr} đã kết thúc. Nhiệm vụ cần thực hiện: **${task}**!`;
         if (channelToRemind) {
           await channelToRemind.send(`⏰ ${reminderText}`).catch(() => {});
         }
@@ -2161,7 +2262,7 @@ Dài khoảng 3 câu bằng tiếng Việt.`;
         // Nếu bot đang trong phòng thoại, nói to nhắc nhở!
         const voiceConn = currentGuildId ? getVoiceConnection(currentGuildId) : null;
         if (voiceConn && isVoiceEnabled) {
-          const spokenReminder = `Này ${userToRemind.displayName || userToRemind.username}, đã hết giờ rồi đấy. Mau đi ${task} đi!`;
+          const spokenReminder = `Thưa ngài ${userToRemind.displayName || userToRemind.username}, đã hết ${timeStr}. Đã đến lúc ngài cần ${task}!`;
           const audioBuf = await generateAudioBuffer(spokenReminder);
           if (audioBuf) {
             queueAudio(currentGuildId, audioBuf);
@@ -2174,38 +2275,175 @@ Dài khoảng 3 câu bằng tiếng Việt.`;
     return;
   }
 
-  // Lệnh /profile (Hồ sơ Người Leo Tháp)
+  // Lệnh /profile (Hồ sơ An Ninh Stark & Avengers)
   if (interaction.commandName === 'profile') {
     const targetUser = interaction.options.getUser('user') || interaction.user;
     const profile = getProfile(targetUser.id);
 
     const embed = new EmbedBuilder()
-      .setTitle(`📜 THẺ CĂN CƯỚC REGULAR: ${targetUser.username.toUpperCase()}`)
+      .setTitle(`🛡️ THẺ AN NINH STARK INDUSTRIES: ${targetUser.username.toUpperCase()}`)
       .setThumbnail(targetUser.displayAvatarURL())
-      .setColor(0x2ecc71)
+      .setColor(0x00D2FF)
       .addFields(
-        { name: '🏰 Tầng Hiện Tại', value: `Tầng ${profile.floor}`, inline: true },
-        { name: '⚔️ Vị Trí Chiến Đấu', value: `${profile.position}`, inline: true },
-        { name: '✨ Điểm Shinsu (EXP)', value: `${profile.shinsu} EXP`, inline: true },
-        { name: '🏅 Danh Hiệu', value: `${profile.title}`, inline: false }
+        { name: '🎖️ Mức Miễn Trừ An Ninh', value: `Cấp ${profile.floor} (Clearance Level ${profile.floor})`, inline: true },
+        { name: '🦾 Bộ Giáp / Vai Trò', value: `${profile.position}`, inline: true },
+        { name: '⚡ Lò Phản Ứng Arc', value: `${profile.shinsu} Joules`, inline: true },
+        { name: '🏅 Chức Vụ / Danh Hiệu', value: `${profile.title}`, inline: false }
       )
-      .setFooter({ text: 'Gia tộc Khun • Tòa Tháp Sinh Tử' })
+      .setFooter({ text: 'Stark Industries • Avengers Tactical Division' })
       .setTimestamp();
 
     await interaction.reply({ embeds: [embed] });
     return;
   }
 
-  // Lệnh /setrole (Chọn Vị Trí)
+  // Lệnh /setrole (Trang bị Bộ Giáp / Vai trò)
   if (interaction.commandName === 'setrole') {
     const newPos = interaction.options.getString('position');
     const profile = getProfile(interaction.user.id);
     profile.position = newPos;
 
     await interaction.reply({
-      content: `✅ Bạn đã đổi vị trí chiến đấu thành công: **${newPos}**! Hãy luyện tập Shinsu để leo tầng tiếp theo.`,
+      content: `✅ Thưa ngài, hệ thống đã trang bị bộ giáp/vai trò: **${newPos}**! Hãy tích lũy năng lượng Arc Reactor qua hoạt động để nâng cấp mức an ninh tiếp theo.`,
       ephemeral: true,
     });
+    return;
+  }
+
+  // Lệnh /quiz (Đố vui trí tuệ Stark Industries)
+  if (interaction.commandName === 'quiz') {
+    const topic = interaction.options.getString('topic');
+    await interaction.deferReply();
+
+    const topicDesc = topic
+      ? `về chủ đề: "${topic}"`
+      : 'về một chủ đề lôi cuốn (vũ trụ Marvel / Avengers, siêu anh hùng, khoa học công nghệ, hoặc câu đố mẹo trí tuệ)';
+
+    const quizSystemPrompt = `Bạn là J.A.R.V.I.S. (siêu trí tuệ nhân tạo của Stark Industries).
+Hãy sáng tạo ra 1 câu hỏi đố vui trắc nghiệm tiếng Việt cực kỳ thú vị, kích thích tư duy ${topicDesc}.
+Có 4 phương án lựa chọn A, B, C, D (chỉ duy nhất 1 phương án đúng).
+YÊU CẦU BẮT BUỘC: Trả về DUY NHẤT một chuỗi JSON hợp lệ với cấu trúc sau (không kèm markdown \`\`\`json hay bất kỳ văn bản nào khác ngoài JSON):
+{
+  "question": "Câu hỏi ngắn gọn, hấp dẫn",
+  "options": {
+    "A": "Nội dung đáp án A",
+    "B": "Nội dung đáp án B",
+    "C": "Nội dung đáp án C",
+    "D": "Nội dung đáp án D"
+  },
+  "correct": "A",
+  "explanation": "Giải thích ngắn gọn 1-2 câu vì sao đáp án đó chính xác."
+}`;
+
+    try {
+      const geminiRes = await callGemini(
+        [{ role: 'user', parts: [{ text: 'Khởi tạo câu hỏi đố vui ngay.' }] }],
+        quizSystemPrompt
+      );
+
+      const cleanedJson = geminiRes.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
+      let quizData = null;
+      try {
+        quizData = JSON.parse(cleanedJson);
+      } catch (e) {
+        const jsonMatch = cleanedJson.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          quizData = JSON.parse(jsonMatch[0]);
+        }
+      }
+
+      if (!quizData || !quizData.question || !quizData.options || !quizData.correct) {
+        throw new Error('Dữ liệu câu đố từ hệ thống không đạt chuẩn.');
+      }
+
+      quizData.correct = String(quizData.correct).toUpperCase().trim();
+      const quizId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+
+      const quizEmbed = new EmbedBuilder()
+        .setTitle('🧠 J.A.R.V.I.S. • THỬ THÁCH ĐỐ VUI TRÍ TUỆ')
+        .setDescription(
+          `**${quizData.question}**\n\n` +
+          `🅰️ **A.** ${quizData.options.A}\n` +
+          `🅱️ **B.** ${quizData.options.B}\n` +
+          `🅲 **C.** ${quizData.options.C}\n` +
+          `🅳 **D.** ${quizData.options.D}\n\n` +
+          `*⏱️ Các ngài có 45 giây để bấm chọn đáp án bên dưới!*\n` +
+          `*⚡ Phần thưởng: +20 Joules Arc Reactor Energy cho người đầu tiên trả lời đúng.*`
+        )
+        .setColor(0x00D2FF)
+        .setFooter({ text: 'Stark Industries Intelligence Protocol • Chọn đáp án bên dưới' })
+        .setTimestamp();
+
+      const buttonRow = new ActionRowBuilder().addComponents(
+        ['A', 'B', 'C', 'D'].map((opt) =>
+          new ButtonBuilder()
+            .setCustomId(`quiz_${quizId}_${opt}`)
+            .setLabel(opt)
+            .setStyle(ButtonStyle.Primary)
+        )
+      );
+
+      const replyMsg = await interaction.editReply({ embeds: [quizEmbed], components: [buttonRow] });
+
+      // Đọc to câu hỏi nếu bot đang trong voice
+      if (isInVoiceRoom && isVoiceEnabled) {
+        const spokenQuiz = `Thưa các ngài, tôi có một câu hỏi đố vui: ${quizData.question}. Xin mời các ngài đưa ra đáp án trên màn hình!`;
+        generateAudioBuffer(spokenQuiz).then((buf) => {
+          if (buf) queueAudio(guildId, buf);
+        });
+      }
+
+      // Thiết lập hẹn giờ 45 giây
+      const timer = setTimeout(async () => {
+        const currentQuiz = activeQuizzes.get(quizId);
+        if (currentQuiz && !currentQuiz.answered) {
+          currentQuiz.expired = true;
+          activeQuizzes.delete(quizId);
+
+          const timeoutRow = new ActionRowBuilder().addComponents(
+            ['A', 'B', 'C', 'D'].map((c) =>
+              new ButtonBuilder()
+                .setCustomId(`quiz_expired_${c}`)
+                .setLabel(c)
+                .setStyle(c === quizData.correct ? ButtonStyle.Success : ButtonStyle.Secondary)
+                .setDisabled(true)
+            )
+          );
+
+          const timeoutEmbed = new EmbedBuilder()
+            .setTitle('⌛ HẾT THỜI GIAN • ĐÁP ÁN ĐỐ VUI')
+            .setDescription(
+              `**${quizData.question}**\n\n` +
+              `⏰ Đã hết thời gian 45 giây! Rất tiếc không có ai kịp đưa ra lời giải chính xác.\n\n` +
+              `✅ **Đáp án đúng:** **${quizData.correct}. ${quizData.options[quizData.correct]}**\n` +
+              `💡 **Giải thích:** ${quizData.explanation}`
+            )
+            .setColor(0x95a5a6)
+            .setFooter({ text: 'J.A.R.V.I.S. • Stark Industries Intelligence Protocol' })
+            .setTimestamp();
+
+          try {
+            await replyMsg.edit({ embeds: [timeoutEmbed], components: [timeoutRow] });
+          } catch (e) {}
+        }
+      }, 45000);
+
+      activeQuizzes.set(quizId, {
+        question: quizData.question,
+        options: quizData.options,
+        correct: quizData.correct,
+        explanation: quizData.explanation || 'Không có giải thích thêm.',
+        participants: new Set(),
+        answered: false,
+        expired: false,
+        timer,
+        messageId: replyMsg.id,
+      });
+
+    } catch (err) {
+      console.error('Lỗi /quiz:', err);
+      await interaction.editReply(`⚠️ Thưa ngài, hệ thống gặp sự cố khi tạo câu đố: ${err.message}`);
+    }
     return;
   }
 
@@ -2239,7 +2477,7 @@ Dài khoảng 3 câu bằng tiếng Việt.`;
         queueAudio(guildId, audioBuffer);
         await interaction.editReply({ content: chunks[0] });
       } else if (audioBuffer && !isInVoiceRoom) {
-        const voiceAttachment = new AttachmentBuilder(audioBuffer, { name: 'khun_voice.mp3' });
+        const voiceAttachment = new AttachmentBuilder(audioBuffer, { name: 'jarvis_voice.mp3' });
         await interaction.editReply({ content: chunks[0], files: [voiceAttachment] });
       } else {
         await interaction.editReply({ content: chunks[0] });
@@ -2273,8 +2511,8 @@ client.on('messageCreate', async (message) => {
   try {
     if (message.author.bot) return;
 
-    // Cộng điểm Shinsu EXP khi chat
-    addShinsuExp(message.author.id, 5);
+    // Cộng điểm Arc Reactor EXP khi chat
+    addStarkEnergyExp(message.author.id, 5);
 
     const guildId = message.guildId;
     const connection = guildId ? getVoiceConnection(guildId) : null;
@@ -2283,7 +2521,7 @@ client.on('messageCreate', async (message) => {
     const isDirectMessage = !message.guild;
 
     // ĐỌC TIN NHẮN VÀO PHÒNG THOẠI (TTS CHAT READER)
-    const wakeWordRegex = /^(bot ơi|khun ơi|khung ơi|khôn ơi|khum ơi|trợ lý ơi|ê bot|alo bot)[\s,:]*/i;
+    const wakeWordRegex = /^(jarvis ơi|javis ơi|jarvis|javis|bot ơi|trợ lý ơi|ê jarvis|ê bot|alo jarvis|alo bot)[\s,:]*/i;
     const isWakeWord = wakeWordRegex.test(message.content);
 
     if (isInVoiceRoom && isReadChatEnabled && !isBotMentioned && !isWakeWord && !isDirectMessage) {
@@ -2346,7 +2584,7 @@ client.on('messageCreate', async (message) => {
 
     if (cleanText.toLowerCase() === 'reset' || cleanText.toLowerCase() === '!reset') {
       clearHistory(convoId);
-      await message.reply('🧹 Đã xóa lịch sử hội thoại của bạn! Hãy bắt đầu chủ đề mới nhé.');
+      await message.reply('🧹 Thưa ngài, tôi đã thiết lập lại toàn bộ bộ nhớ hội thoại! Chúng ta có thể bắt đầu chủ đề mới.');
       return;
     }
 
@@ -2363,7 +2601,7 @@ client.on('messageCreate', async (message) => {
     );
 
     if (!cleanText && imageAttachments.size === 0) {
-      await message.reply('Chào bạn! Tôi là Khun Aguero Agnis. Hãy đặt câu hỏi hoặc gửi ảnh để tôi giải đáp nhé!');
+      await message.reply('Kính chào ngài! Tôi là **J.A.R.V.I.S.**, hệ thống trí tuệ nhân tạo của Stark Industries. Vui lòng giao nhiệm vụ hoặc gửi hình ảnh/tài liệu để tôi hỗ trợ nhé!');
       return;
     }
 
@@ -2474,8 +2712,8 @@ client.on('messageCreate', async (message) => {
               .setTitle(`🎨 Tác Phẩm AI: ${promptToDraw.slice(0, 50)}`)
               .setDescription(`**Người yêu cầu:** <@${message.author.id}>`)
               .setImage('attachment://art.jpg')
-              .setColor(0x3498db)
-              .setFooter({ text: 'Khun Aguero Agnis • AI Image Engine' })
+              .setColor(0x00D2FF)
+              .setFooter({ text: 'J.A.R.V.I.S. • Stark Industries Visual Synthesis' })
               .setTimestamp();
 
             await message.reply({ embeds: [embed], files: [attachment] });
@@ -2509,7 +2747,7 @@ client.on('messageCreate', async (message) => {
       // Kiểm tra nếu Gemini muốn phát nhạc qua thẻ [PLAY: ...]
       const playTagMatch = replyText.match(/\[PLAY:\s*([^\]]+)\]/i);
       let cleanedReplyText = replyText.replace(/\[PLAY:\s*[^\]]+\]/gi, '').trim();
-      if (!cleanedReplyText) cleanedReplyText = 'Tôi đang tìm và bật bài hát cho bạn đây!';
+      if (!cleanedReplyText) cleanedReplyText = 'Thưa ngài, tôi đang tìm kiếm và kích hoạt bản nhạc ngay cho ngài!';
 
       addToHistory(convoId, 'model', [{ text: cleanedReplyText }]);
 
@@ -2524,7 +2762,7 @@ client.on('messageCreate', async (message) => {
         queueAudio(guildId, audioBuffer);
         await message.reply(chunks[0]);
       } else if (audioBuffer && !isInVoiceRoom) {
-        const voiceAttachment = new AttachmentBuilder(audioBuffer, { name: 'khun_voice.mp3' });
+        const voiceAttachment = new AttachmentBuilder(audioBuffer, { name: 'jarvis_voice.mp3' });
         await message.reply({ content: chunks[0], files: [voiceAttachment] });
       } else {
         await message.reply(chunks[0]);

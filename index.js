@@ -30,12 +30,25 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
+let loginStatus = 'Khởi tạo...';
+let loginError = null;
+let lastReadyTime = null;
+
 // Health-check server để treo trên Cloud 24/7 (Render, Koyeb, Railway)
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-  const statusStr = (typeof client !== 'undefined' && client.isReady()) ? `🟢 ONLINE (${client.user?.tag})` : '🟡 Đang kết nối Discord...';
-  res.end(`🤖 Khun Aguero Agnis - Discord AI Bot đang chạy 24/7!\nTrạng thái: ${statusStr}`);
+  const rawToken = (process.env.DISCORD_TOKEN || '').trim();
+  const tokenMask = rawToken.length > 10 ? `${rawToken.slice(0, 6)}...${rawToken.slice(-6)} (len: ${rawToken.length})` : `(len: ${rawToken.length})`;
+  const isReady = typeof client !== 'undefined' && client && typeof client.isReady === 'function' && client.isReady();
+  const statusStr = isReady ? `🟢 ONLINE (${client.user?.tag})` : `🟡 CHƯA SẴN SÀNG (${loginStatus})`;
+
+  let out = `🤖 Khun Aguero Agnis - Discord AI Bot đang chạy 24/7!\n`;
+  out += `Trạng thái: ${statusStr}\n`;
+  out += `Token Render: ${tokenMask}\n`;
+  if (lastReadyTime) out += `Online lúc: ${lastReadyTime}\n`;
+  if (loginError) out += `Lỗi kết nối: ${loginError}\n`;
+  res.end(out);
 }).listen(PORT, () => {
   console.log(`🌐 Health-check server sẵn sàng trên cổng ${PORT}`);
 });
@@ -815,7 +828,23 @@ const client = new Client({
   partials: [Partials.Channel],
 });
 
+client.on('error', (err) => {
+  loginError = `Client Error: ${err.message}`;
+  console.error('⚠️ [Client Error]:', err);
+});
+
+client.on('shardError', (err) => {
+  loginError = `Shard Error: ${err.message}`;
+  console.error('⚠️ [Shard Error]:', err);
+});
+
+client.on('shardDisconnect', (event) => {
+  loginStatus = `Mất kết nối Gateway (Code: ${event.code})`;
+});
+
 client.once('ready', async () => {
+  lastReadyTime = new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
+  loginStatus = 'Đã sẵn sàng hoạt động';
   console.log(`=============================================`);
   console.log(`🤖 Bot đã online: ${client.user.tag}`);
   console.log(`ID Bot: ${client.user.id}`);
@@ -1951,11 +1980,16 @@ client.on('messageCreate', async (message) => {
 // 10. ĐĂNG NHẬP BOT
 // ==========================================
 const token = (process.env.DISCORD_TOKEN || '').replace(/^["']|["']$/g, '').trim();
-console.log('🔄 Đang kết nối tới Discord Gateway (IPv4)...');
+console.log(`🔄 Bắt đầu kết nối tới Discord Gateway (IPv4, Token độ dài: ${token.length})...`);
+loginStatus = 'Đang gọi client.login()...';
+
 client.login(token)
   .then(() => {
+    loginStatus = 'Xác thực thành công, đang đợi Gateway Ready...';
     console.log('✅ client.login() hoàn tất xác thực với Discord!');
   })
   .catch((err) => {
+    loginStatus = 'Đăng nhập thất bại';
+    loginError = err.message || String(err);
     console.error('❌ Lỗi đăng nhập Discord:', err.message);
   });

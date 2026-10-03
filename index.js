@@ -22,6 +22,7 @@ const {
 const prism = require('prism-media');
 const { MsEdgeTTS, OUTPUT_FORMAT } = require('msedge-tts');
 const { Readable } = require('stream');
+const play = require('play-dl');
 const http = require('http');
 const fs = require('fs');
 const os = require('os');
@@ -224,37 +225,275 @@ async function generateAIImageBuffer(prompt, style = '') {
 }
 
 // ==========================================
-// 4. QUẢN LÝ VOICE CHANNEL & HÀNG ĐỢI ÂM THANH
+// 4. QUẢN LÝ VOICE CHANNEL, HÀNG ĐỢI ÂM THANH & PHÁT NHẠC (YOUTUBE / SPOTIFY)
 // ==========================================
 let isVoiceEnabled = true;
 let isReadChatEnabled = true;
 
 const guildVoiceSessions = new Map();
 
+// Quản lý Client ID cho SoundCloud (Dự phòng đa nguồn 100% không bị chặn cloud IP)
+let scClientId = null;
+async function ensureSoundCloudClient() {
+  if (!scClientId) {
+    try {
+      scClientId = await play.getFreeClientID();
+      await play.setToken({ soundcloud: { client_id: scClientId } });
+    } catch (e) {
+      console.warn('Lỗi khởi tạo SoundCloud Client ID:', e.message);
+    }
+  }
+}
+
+// Bộ giải mã và tìm nạp thông tin bài hát (Hỗ trợ Từ khóa, Spotify, YouTube)
+async function resolveTrackInfo(query, requestedBy) {
+  await ensureSoundCloudClient();
+  let title = '';
+  let artist = '';
+  let thumbnail = '';
+  let originalUrl = query.trim();
+  let searchQuery = query.trim();
+
+  // 1. Kiểm tra link Spotify
+  if (query.includes('spotify.com')) {
+    try {
+      const oembedRes = await fetch('https://open.spotify.com/oembed?url=' + encodeURIComponent(query));
+      if (oembedRes.ok) {
+        const data = await oembedRes.json();
+        title = data.title || '';
+        thumbnail = data.thumbnail_url || '';
+
+        try {
+          const pageRes = await fetch(query, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+          const html = await pageRes.text();
+          const match = html.match(/<title>([^<]+)<\/title>/);
+          if (match && match[1]) {
+            const pageTitle = match[1].replace(/ \| Spotify$/, '');
+            const parts = pageTitle.split(' - song and lyrics by ');
+            if (parts.length === 2) {
+              title = parts[0];
+              artist = parts[1];
+              searchQuery = `${title} ${artist}`;
+            } else {
+              searchQuery = title;
+            }
+          }
+        } catch (_) {
+          searchQuery = title;
+        }
+      }
+    } catch (e) {
+      console.warn('Lỗi phân tích Spotify:', e.message);
+    }
+  }
+  // 2. Kiểm tra link YouTube
+  else if (query.includes('youtube.com') || query.includes('youtu.be')) {
+    try {
+      const oembedRes = await fetch('https://www.youtube.com/oembed?url=' + encodeURIComponent(query) + '&format=json');
+      if (oembedRes.ok) {
+        const data = await oembedRes.json();
+        title = data.title || '';
+        artist = data.author_name || '';
+        thumbnail = data.thumbnail_url || '';
+        searchQuery = `${title} ${artist}`.trim();
+      }
+    } catch (e) {
+      console.warn('Lỗi phân tích YouTube:', e.message);
+    }
+  }
+
+  // 3. Tìm kiếm stream trên SoundCloud (Đa nguồn dự phòng 100% không bị chặn cloud IP trên Render)
+  let searchResults = [];
+  try {
+    searchResults = await play.search(searchQuery, { source: { soundcloud: 'tracks' }, limit: 5 });
+  } catch (err) {
+    scClientId = null;
+    await ensureSoundCloudClient();
+    try {
+      searchResults = await play.search(searchQuery, { source: { soundcloud: 'tracks' }, limit: 5 });
+    } catch (retryErr) {
+      console.warn('Lỗi tìm kiếm SoundCloud:', retryErr.message);
+    }
+  }
+
+  if (!searchResults || searchResults.length === 0) {
+    return null;
+  }
+
+  // Lọc bài hát có thời lượng > 45 giây để tránh bản preview 30s
+  const fullTracks = searchResults.filter((t) => t.durationInSec && t.durationInSec > 45);
+  // Ưu tiên bản gốc (không chứa từ khóa remix/bootleg/cover nếu có nhiều kết quả)
+  const bestTrack =
+    fullTracks.find((t) => !/remix|bootleg|cover/i.test(t.name)) ||
+    fullTracks[0] ||
+    searchResults[0];
+
+  return {
+    title: title || bestTrack.name,
+    artist: artist || bestTrack.user?.name || 'Nghệ sĩ',
+    url: bestTrack.url,
+    originalUrl: originalUrl.startsWith('http') ? originalUrl : bestTrack.url,
+    thumbnail: thumbnail || bestTrack.thumbnail || '',
+    duration: bestTrack.durationInSec
+      ? `${Math.floor(bestTrack.durationInSec / 60)}:${('0' + (bestTrack.durationInSec % 60)).slice(-2)}`
+      : 'N/A',
+    requestedBy: requestedBy,
+  };
+}
+
+// Bảng điều khiển nút bấm âm nhạc (Interactive Buttons)
+function createMusicControlRow() {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('btn_music_toggle')
+      .setLabel('⏯️ Tạm dừng / Tiếp tục')
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId('btn_music_skip')
+      .setLabel('⏭️ Bỏ qua')
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId('btn_music_stop')
+      .setLabel('⏹️ Dừng phát')
+      .setStyle(ButtonStyle.Danger),
+    new ButtonBuilder()
+      .setCustomId('btn_music_queue')
+      .setLabel('📜 Hàng đợi')
+      .setStyle(ButtonStyle.Secondary)
+  );
+}
+
+// Embed hiển thị bài hát đang phát
+function createNowPlayingEmbed(song) {
+  const embed = new EmbedBuilder()
+    .setTitle(`🎶 Đang Phát: ${song.title.slice(0, 80)}`)
+    .setDescription(
+      `**Ca sĩ / Nghệ sĩ:** ${song.artist}\n` +
+      `**Thời lượng:** \`${song.duration}\`\n` +
+      `**Người yêu cầu:** <@${song.requestedBy.id}>\n` +
+      `**Nguồn bài:** [Nhấn vào đây để xem](${song.originalUrl})`
+    )
+    .setColor(0x1DB954)
+    .setFooter({ text: 'Khun Aguero Agnis • Music Engine 24/7' })
+    .setTimestamp();
+
+  if (song.thumbnail) {
+    embed.setThumbnail(song.thumbnail);
+  }
+  return embed;
+}
+
 function getOrCreateVoiceSession(guildId) {
   if (!guildVoiceSessions.has(guildId)) {
     const player = createAudioPlayer();
+    const musicPlayer = createAudioPlayer();
     const session = {
       player,
+      musicPlayer,
       queue: [],
       isPlaying: false,
+      isMusicPausedForTTS: false,
+      musicQueue: {
+        songs: [],
+        isPlaying: false,
+        currentSong: null,
+        textChannel: null,
+      },
       boundChannels: new Set(),
     };
 
+    // Khi TTS đọc xong
     player.on(AudioPlayerStatus.Idle, () => {
       session.isPlaying = false;
-      playNextInQueue(guildId);
+      if (session.queue.length > 0) {
+        playNextInQueue(guildId);
+      } else {
+        // Nếu nhạc bị tạm dừng vì TTS, tự động tiếp tục phát nhạc!
+        if (session.isMusicPausedForTTS && session.musicQueue.isPlaying) {
+          session.isMusicPausedForTTS = false;
+          const connection = getVoiceConnection(guildId);
+          if (connection) {
+            connection.subscribe(session.musicPlayer);
+            session.musicPlayer.unpause();
+          }
+        }
+      }
     });
 
     player.on('error', (err) => {
-      console.error(`[Player Error ${guildId}]:`, err.message);
+      console.error(`[TTS Player Error ${guildId}]:`, err.message);
       session.isPlaying = false;
-      playNextInQueue(guildId);
+      if (session.queue.length > 0) {
+        playNextInQueue(guildId);
+      } else if (session.isMusicPausedForTTS && session.musicQueue.isPlaying) {
+        session.isMusicPausedForTTS = false;
+        const connection = getVoiceConnection(guildId);
+        if (connection) {
+          connection.subscribe(session.musicPlayer);
+          session.musicPlayer.unpause();
+        }
+      }
+    });
+
+    // Khi bài hát kết thúc -> Chuyển bài kế tiếp
+    musicPlayer.on(AudioPlayerStatus.Idle, () => {
+      playNextSongInQueue(guildId);
+    });
+
+    musicPlayer.on('error', (err) => {
+      console.error(`[Music Player Error ${guildId}]:`, err.message);
+      playNextSongInQueue(guildId);
     });
 
     guildVoiceSessions.set(guildId, session);
   }
   return guildVoiceSessions.get(guildId);
+}
+
+// Phát bài hát tiếp theo trong danh sách chờ
+async function playNextSongInQueue(guildId) {
+  const session = guildVoiceSessions.get(guildId);
+  if (!session) return;
+
+  const musicQueue = session.musicQueue;
+  if (musicQueue.songs.length === 0) {
+    musicQueue.isPlaying = false;
+    musicQueue.currentSong = null;
+    return;
+  }
+
+  const nextSong = musicQueue.songs.shift();
+  musicQueue.currentSong = nextSong;
+  musicQueue.isPlaying = true;
+
+  try {
+    const stream = await play.stream(nextSong.url);
+    const resource = createAudioResource(stream.stream, { inputType: stream.type });
+
+    const connection = getVoiceConnection(guildId);
+    if (connection) {
+      if (session.isPlaying) {
+        session.isMusicPausedForTTS = true;
+        session.musicPlayer.play(resource);
+        session.musicPlayer.pause();
+      } else {
+        connection.subscribe(session.musicPlayer);
+        session.musicPlayer.play(resource);
+      }
+    }
+
+    if (musicQueue.textChannel) {
+      const npEmbed = createNowPlayingEmbed(nextSong);
+      const row = createMusicControlRow();
+      musicQueue.textChannel.send({ embeds: [npEmbed], components: [row] }).catch(() => {});
+    }
+  } catch (err) {
+    console.error(`[Play Error ${guildId}]:`, err.message);
+    if (musicQueue.textChannel) {
+      musicQueue.textChannel.send(`⚠️ Không thể phát bài **${nextSong.title}**: ${err.message}. Đang chuyển sang bài tiếp theo...`).catch(() => {});
+    }
+    playNextSongInQueue(guildId);
+  }
 }
 
 function playNextInQueue(guildId) {
@@ -266,6 +505,12 @@ function playNextInQueue(guildId) {
 
   const connection = getVoiceConnection(guildId);
   if (connection) {
+    // Nếu nhạc đang phát, tạm dừng để nhường mic cho Khun nói
+    if (session.musicQueue.isPlaying && session.musicPlayer.state.status === AudioPlayerStatus.Playing) {
+      session.isMusicPausedForTTS = true;
+      session.musicPlayer.pause();
+    }
+
     connection.subscribe(session.player);
     const resource = createAudioResource(Readable.from(audioBuffer));
     session.player.play(resource);
@@ -737,6 +982,44 @@ client.once('ready', async () => {
     new SlashCommandBuilder()
       .setName('talk')
       .setDescription('Bật mic để nói chuyện trực tiếp với Bot bằng giọng nói trong phòng voice (tiết kiệm token)'),
+
+    // 16. Phát nhạc (YouTube / Spotify / SoundCloud)
+    new SlashCommandBuilder()
+      .setName('play')
+      .setDescription('Phát bài hát từ YouTube, Spotify, SoundCloud hoặc tìm kiếm theo tên bài')
+      .addStringOption((opt) =>
+        opt.setName('query').setDescription('Tên bài hát hoặc đường link (YouTube / Spotify)').setRequired(true)
+      ),
+
+    // 17. Tạm dừng nhạc
+    new SlashCommandBuilder()
+      .setName('pause')
+      .setDescription('Tạm dừng bài hát đang phát'),
+
+    // 18. Tiếp tục phát nhạc
+    new SlashCommandBuilder()
+      .setName('resume')
+      .setDescription('Tiếp tục phát bài hát đang tạm dừng'),
+
+    // 19. Bỏ qua bài hát
+    new SlashCommandBuilder()
+      .setName('skip')
+      .setDescription('Bỏ qua bài hát hiện tại để phát bài kế tiếp trong hàng đợi'),
+
+    // 20. Dừng phát nhạc
+    new SlashCommandBuilder()
+      .setName('stop')
+      .setDescription('Dừng hẳn phát nhạc và làm trống danh sách hàng đợi'),
+
+    // 21. Xem hàng đợi nhạc
+    new SlashCommandBuilder()
+      .setName('queue')
+      .setDescription('Xem danh sách các bài hát đang chờ trong hàng đợi'),
+
+    // 22. Thông tin bài hát đang phát
+    new SlashCommandBuilder()
+      .setName('nowplaying')
+      .setDescription('Xem thông tin chi tiết bài hát đang phát và bảng điều khiển'),
   ];
 
   try {
@@ -787,6 +1070,13 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.customId === 'btn_voice_leave') {
       const conn = guildId ? getVoiceConnection(guildId) : null;
       if (conn) {
+        const session = guildVoiceSessions.get(guildId);
+        if (session) {
+          session.musicPlayer.stop(true);
+          session.musicQueue.songs = [];
+          session.musicQueue.currentSong = null;
+          session.musicQueue.isPlaying = false;
+        }
         conn.destroy();
         guildVoiceSessions.delete(guildId);
         activeVoiceListeners.delete(guildId);
@@ -794,6 +1084,76 @@ client.on('interactionCreate', async (interaction) => {
       } else {
         return interaction.reply({ content: '⚠️ Bot không còn ở trong phòng thoại nào!', ephemeral: true });
       }
+    }
+
+    // Nút điều khiển âm nhạc: Tạm dừng / Tiếp tục
+    if (interaction.customId === 'btn_music_toggle') {
+      const session = guildVoiceSessions.get(guildId);
+      if (!session || (!session.musicQueue.isPlaying && !session.musicQueue.currentSong)) {
+        return interaction.reply({ content: '⚠️ Hiện tại không có bài hát nào đang phát!', ephemeral: true });
+      }
+      if (session.musicPlayer.state.status === AudioPlayerStatus.Playing) {
+        session.musicPlayer.pause();
+        return interaction.reply('⏸️ **Đã tạm dừng bài hát!**');
+      } else if (session.musicPlayer.state.status === AudioPlayerStatus.Paused) {
+        const conn = getVoiceConnection(guildId);
+        if (conn) conn.subscribe(session.musicPlayer);
+        session.musicPlayer.unpause();
+        return interaction.reply('▶️ **Đã tiếp tục phát nhạc!**');
+      } else {
+        return interaction.reply({ content: '⚠️ Máy phát nhạc đang chuẩn bị, vui lòng thử lại sau vài giây!', ephemeral: true });
+      }
+    }
+
+    // Nút điều khiển âm nhạc: Bỏ qua bài hát
+    if (interaction.customId === 'btn_music_skip') {
+      const session = guildVoiceSessions.get(guildId);
+      if (!session || (!session.musicQueue.isPlaying && !session.musicQueue.currentSong)) {
+        return interaction.reply({ content: '⚠️ Không có bài hát nào đang phát để bỏ qua!', ephemeral: true });
+      }
+      const skippedSong = session.musicQueue.currentSong?.title || 'Hiện tại';
+      session.musicPlayer.stop();
+      return interaction.reply(`⏭️ Đã bỏ qua bài hát: **${skippedSong}**!`);
+    }
+
+    // Nút điều khiển âm nhạc: Dừng phát
+    if (interaction.customId === 'btn_music_stop') {
+      const session = guildVoiceSessions.get(guildId);
+      if (!session || (!session.musicQueue.isPlaying && !session.musicQueue.currentSong)) {
+        return interaction.reply({ content: '⚠️ Không có bài hát nào đang phát!', ephemeral: true });
+      }
+      session.musicQueue.songs = [];
+      session.musicQueue.currentSong = null;
+      session.musicQueue.isPlaying = false;
+      session.musicPlayer.stop();
+      return interaction.reply('⏹️ **Đã dừng phát nhạc và làm trống danh sách hàng đợi!**');
+    }
+
+    // Nút điều khiển âm nhạc: Xem hàng đợi
+    if (interaction.customId === 'btn_music_queue') {
+      const session = guildVoiceSessions.get(guildId);
+      if (!session || (!session.musicQueue.isPlaying && !session.musicQueue.currentSong)) {
+        return interaction.reply({ content: '📜 Hàng đợi hiện đang trống! Dùng `/play` để thêm bài hát.', ephemeral: true });
+      }
+      const current = session.musicQueue.currentSong;
+      let desc = `**🎶 Đang phát:** [${current.title}](${current.originalUrl}) (\`${current.duration}\`) - <@${current.requestedBy.id}>\n\n**Danh sách chờ:**\n`;
+      if (session.musicQueue.songs.length === 0) {
+        desc += '*Không có bài hát nào tiếp theo trong hàng đợi.*';
+      } else {
+        const list = session.musicQueue.songs
+          .slice(0, 10)
+          .map((s, idx) => `**#${idx + 1}.** [${s.title}](${s.originalUrl}) (\`${s.duration}\`) - <@${s.requestedBy.id}>`);
+        desc += list.join('\n');
+        if (session.musicQueue.songs.length > 10) {
+          desc += `\n*...và còn ${session.musicQueue.songs.length - 10} bài hát khác.*`;
+        }
+      }
+      const embed = new EmbedBuilder()
+        .setTitle('📜 HÀNG ĐỢI ÂM NHẠC')
+        .setDescription(desc)
+        .setColor(0x1DB954)
+        .setFooter({ text: `Tổng cộng ${session.musicQueue.songs.length + 1} bài hát` });
+      return interaction.reply({ embeds: [embed], ephemeral: true });
     }
     return;
   }
@@ -870,7 +1230,17 @@ client.on('interactionCreate', async (interaction) => {
             '• `/voice [on | off]` : Bật/Tắt giọng đọc lồng tiếng Nam Minh (tốc độ +12%, trầm -2Hz).',
         },
         {
-          name: '🏰 4. TÒA THÁP (TOWER OF GOD & TIỆN ÍCH)',
+          name: '🎵 4. ÂM NHẠC ĐỈNH CAO (YOUTUBE & SPOTIFY)',
+          value:
+            '• `/play [tên_bài_hoặc_link]` : Phát nhạc từ YouTube, Spotify, SoundCloud hoặc tìm kiếm.\n' +
+            '• `/pause` & `/resume` : Tạm dừng hoặc tiếp tục bài hát.\n' +
+            '• `/skip` : Bỏ qua bài hát hiện tại để phát bài kế tiếp.\n' +
+            '• `/stop` : Dừng phát nhạc và xóa sạch toàn bộ hàng đợi.\n' +
+            '• `/queue` : Xem danh sách các bài hát đang chờ trong hàng đợi.\n' +
+            '• `/nowplaying` : Xem thông tin bài hát đang phát kèm các nút bấm điều khiển tiện lợi!',
+        },
+        {
+          name: '🏰 5. TÒA THÁP (TOWER OF GOD & TIỆN ÍCH)',
           value:
             '• `/profile [user]` : Xem thẻ căn cước Regular, cấp bậc tầng, Shinsu và Vị trí RPG.\n' +
             '• `/setrole [vị_trí]` : Đổi vị trí chiến đấu (Light Bearer, Fisherman, Wave Controller...).\n' +
@@ -961,6 +1331,13 @@ client.on('interactionCreate', async (interaction) => {
   // Lệnh /leave
   if (interaction.commandName === 'leave') {
     if (connection) {
+      const session = guildVoiceSessions.get(guildId);
+      if (session) {
+        session.musicPlayer.stop(true);
+        session.musicQueue.songs = [];
+        session.musicQueue.currentSong = null;
+        session.musicQueue.isPlaying = false;
+      }
       connection.destroy();
       guildVoiceSessions.delete(guildId);
       activeVoiceListeners.delete(guildId);
@@ -969,6 +1346,169 @@ client.on('interactionCreate', async (interaction) => {
       await interaction.reply({ content: '⚠️ Bot hiện không ở trong kênh thoại nào!', ephemeral: true });
     }
     return;
+  }
+
+  // Lệnh /play (Phát nhạc YouTube / Spotify / SoundCloud)
+  if (interaction.commandName === 'play') {
+    const memberVoiceChannel = interaction.member?.voice?.channel;
+    if (!memberVoiceChannel) {
+      return interaction.reply({
+        content: '⚠️ Bạn phải ở trong một kênh thoại (Voice Channel) để dùng lệnh phát nhạc!',
+        ephemeral: true,
+      });
+    }
+
+    const query = interaction.options.getString('query');
+    await interaction.deferReply();
+
+    let conn = getVoiceConnection(guildId);
+    const session = getOrCreateVoiceSession(guildId);
+
+    // Tự động kết nối vào kênh voice nếu bot chưa vào
+    if (!conn) {
+      try {
+        conn = joinVoiceChannel({
+          channelId: memberVoiceChannel.id,
+          guildId: memberVoiceChannel.guild.id,
+          adapterCreator: memberVoiceChannel.guild.voiceAdapterCreator,
+        });
+        session.boundChannels.add(memberVoiceChannel.id);
+        session.boundChannels.add(interaction.channelId);
+      } catch (connErr) {
+        console.error('Lỗi tự động kết nối voice khi /play:', connErr);
+        return interaction.editReply(`⚠️ Không thể kết nối vào phòng thoại: ${connErr.message}`);
+      }
+    }
+
+    session.musicQueue.textChannel = interaction.channel;
+
+    try {
+      const track = await resolveTrackInfo(query, interaction.user);
+      if (!track) {
+        return interaction.editReply(`⚠️ Không tìm thấy bài hát nào cho từ khóa: **${query}**! Vui lòng thử lại với tên hoặc đường link khác.`);
+      }
+
+      const isCurrentlyPlaying =
+        session.musicQueue.isPlaying ||
+        session.musicPlayer.state.status === AudioPlayerStatus.Playing ||
+        session.musicPlayer.state.status === AudioPlayerStatus.Paused;
+
+      if (isCurrentlyPlaying) {
+        session.musicQueue.songs.push(track);
+        const queueEmbed = new EmbedBuilder()
+          .setTitle('➕ Đã Thêm Vào Hàng Đợi')
+          .setDescription(
+            `**[${track.title}](${track.originalUrl})**\n` +
+            `**Nghệ sĩ:** ${track.artist}\n` +
+            `**Thời lượng:** \`${track.duration}\`\n` +
+            `**Vị trí chờ:** #${session.musicQueue.songs.length}\n` +
+            `**Người yêu cầu:** <@${interaction.user.id}>`
+          )
+          .setColor(0x1DB954)
+          .setThumbnail(track.thumbnail || null);
+        return interaction.editReply({ embeds: [queueEmbed] });
+      } else {
+        session.musicQueue.songs.push(track);
+        playNextSongInQueue(guildId);
+        return interaction.editReply(`🔎 Đã tìm thấy: **[${track.title}](${track.originalUrl})**! Bắt đầu phát vào phòng thoại...`);
+      }
+    } catch (err) {
+      console.error('Lỗi /play:', err);
+      return interaction.editReply(`⚠️ Đã có lỗi xảy ra khi nạp bài hát: ${err.message}`);
+    }
+  }
+
+  // Lệnh /pause (Tạm dừng nhạc)
+  if (interaction.commandName === 'pause') {
+    const session = guildVoiceSessions.get(guildId);
+    if (!session || (!session.musicQueue.isPlaying && !session.musicQueue.currentSong)) {
+      return interaction.reply({ content: '⚠️ Hiện tại không có bài hát nào đang phát!', ephemeral: true });
+    }
+    if (session.musicPlayer.state.status === AudioPlayerStatus.Paused) {
+      return interaction.reply({ content: '⏸️ Bài hát đã đang tạm dừng rồi!', ephemeral: true });
+    }
+    session.musicPlayer.pause();
+    return interaction.reply('⏸️ **Đã tạm dừng bài hát!** (Dùng `/resume` để tiếp tục)');
+  }
+
+  // Lệnh /resume (Tiếp tục phát nhạc)
+  if (interaction.commandName === 'resume') {
+    const session = guildVoiceSessions.get(guildId);
+    if (!session || (!session.musicQueue.isPlaying && !session.musicQueue.currentSong)) {
+      return interaction.reply({ content: '⚠️ Hiện tại không có bài hát nào đang phát!', ephemeral: true });
+    }
+    if (session.musicPlayer.state.status === AudioPlayerStatus.Playing) {
+      return interaction.reply({ content: '▶️ Bài hát đang phát bình thường!', ephemeral: true });
+    }
+    const conn = getVoiceConnection(guildId);
+    if (conn) {
+      conn.subscribe(session.musicPlayer);
+    }
+    session.musicPlayer.unpause();
+    return interaction.reply('▶️ **Đã tiếp tục phát nhạc!**');
+  }
+
+  // Lệnh /skip (Bỏ qua bài hát)
+  if (interaction.commandName === 'skip') {
+    const session = guildVoiceSessions.get(guildId);
+    if (!session || (!session.musicQueue.isPlaying && !session.musicQueue.currentSong)) {
+      return interaction.reply({ content: '⚠️ Không có bài hát nào đang phát để bỏ qua!', ephemeral: true });
+    }
+    const skippedTitle = session.musicQueue.currentSong?.title || 'Hiện tại';
+    session.musicPlayer.stop();
+    return interaction.reply(`⏭️ Đã bỏ qua bài hát: **${skippedTitle}**!`);
+  }
+
+  // Lệnh /stop (Dừng phát & làm trống hàng đợi)
+  if (interaction.commandName === 'stop') {
+    const session = guildVoiceSessions.get(guildId);
+    if (!session || (!session.musicQueue.isPlaying && !session.musicQueue.currentSong)) {
+      return interaction.reply({ content: '⚠️ Không có bài hát nào đang phát!', ephemeral: true });
+    }
+    session.musicQueue.songs = [];
+    session.musicQueue.currentSong = null;
+    session.musicQueue.isPlaying = false;
+    session.musicPlayer.stop();
+    return interaction.reply('⏹️ **Đã dừng phát nhạc và làm trống toàn bộ hàng đợi!**');
+  }
+
+  // Lệnh /queue (Xem hàng đợi)
+  if (interaction.commandName === 'queue') {
+    const session = guildVoiceSessions.get(guildId);
+    if (!session || (!session.musicQueue.isPlaying && !session.musicQueue.currentSong)) {
+      return interaction.reply({ content: '📜 Hàng đợi hiện đang trống! Hãy dùng `/play` để thêm bài hát.', ephemeral: true });
+    }
+    const current = session.musicQueue.currentSong;
+    let desc = `**🎶 Đang phát:** [${current.title}](${current.originalUrl}) (\`${current.duration}\`) - <@${current.requestedBy.id}>\n\n**Danh sách chờ:**\n`;
+    if (session.musicQueue.songs.length === 0) {
+      desc += '*Không có bài hát nào tiếp theo trong hàng đợi.*';
+    } else {
+      const list = session.musicQueue.songs
+        .slice(0, 10)
+        .map((s, idx) => `**#${idx + 1}.** [${s.title}](${s.originalUrl}) (\`${s.duration}\`) - <@${s.requestedBy.id}>`);
+      desc += list.join('\n');
+      if (session.musicQueue.songs.length > 10) {
+        desc += `\n*...và còn ${session.musicQueue.songs.length - 10} bài hát khác.*`;
+      }
+    }
+    const embed = new EmbedBuilder()
+      .setTitle('📜 HÀNG ĐỢI ÂM NHẠC')
+      .setDescription(desc)
+      .setColor(0x1DB954)
+      .setFooter({ text: `Tổng cộng ${session.musicQueue.songs.length + 1} bài hát` });
+    return interaction.reply({ embeds: [embed] });
+  }
+
+  // Lệnh /nowplaying (Xem thông tin bài hát đang phát)
+  if (interaction.commandName === 'nowplaying') {
+    const session = guildVoiceSessions.get(guildId);
+    if (!session || (!session.musicQueue.isPlaying && !session.musicQueue.currentSong)) {
+      return interaction.reply({ content: '⚠️ Hiện tại không có bài hát nào đang phát!', ephemeral: true });
+    }
+    const current = session.musicQueue.currentSong;
+    const embed = createNowPlayingEmbed(current);
+    const row = createMusicControlRow();
+    return interaction.reply({ embeds: [embed], components: [row] });
   }
 
   // Lệnh /talk (Nói chuyện trực tiếp qua mic - Tiết kiệm Token)
@@ -1233,11 +1773,15 @@ client.on('messageCreate', async (message) => {
     const isDirectMessage = !message.guild;
 
     // ĐỌC TIN NHẮN VÀO PHÒNG THOẠI (TTS CHAT READER)
-    if (isInVoiceRoom && isReadChatEnabled && !isBotMentioned && !isDirectMessage) {
+    const wakeWordRegex = /^(bot ơi|khun ơi|khung ơi|khôn ơi|khum ơi|trợ lý ơi|ê bot|alo bot)[\s,:]*/i;
+    const isWakeWord = wakeWordRegex.test(message.content);
+
+    if (isInVoiceRoom && isReadChatEnabled && !isBotMentioned && !isWakeWord && !isDirectMessage) {
       const session = guildVoiceSessions.get(guildId);
+      const isMusicPlaying = session && session.musicQueue && (session.musicQueue.isPlaying || session.musicPlayer.state.status === AudioPlayerStatus.Playing);
       const isTargetChannel = session && (session.boundChannels.has(message.channelId) || session.boundChannels.size === 0);
 
-      if (isTargetChannel) {
+      if (isTargetChannel && !isMusicPlaying) {
         const senderName = message.member?.displayName || message.author.displayName || message.author.username;
         const cleanText = cleanTextForTTS(message.content);
 
@@ -1282,9 +1826,6 @@ client.on('messageCreate', async (message) => {
     }
 
     // HỎI ĐÁP VỚI AI KHI ĐƯỢC TAG, TRONG DM HOẶC GỌI TÊN TỰ NHIÊN
-    const wakeWordRegex = /^(bot ơi|khun ơi|khung ơi|khôn ơi|khum ơi|trợ lý ơi|ê bot|alo bot)[\s,:]*/i;
-    const isWakeWord = wakeWordRegex.test(message.content);
-
     if (!isDirectMessage && !isBotMentioned && !isWakeWord) return;
 
     const cleanText = message.content

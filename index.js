@@ -1,3 +1,5 @@
+const dns = require('dns');
+dns.setDefaultResultOrder('ipv4first');
 require('dotenv').config();
 const {
   Client,
@@ -32,7 +34,8 @@ const path = require('path');
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-  res.end('🤖 Khun Aguero Agnis - Discord AI Bot đang chạy 24/7!');
+  const statusStr = (typeof client !== 'undefined' && client.isReady()) ? `🟢 ONLINE (${client.user?.tag})` : '🟡 Đang kết nối Discord...';
+  res.end(`🤖 Khun Aguero Agnis - Discord AI Bot đang chạy 24/7!\nTrạng thái: ${statusStr}`);
 }).listen(PORT, () => {
   console.log(`🌐 Health-check server sẵn sàng trên cổng ${PORT}`);
 });
@@ -1947,4 +1950,12 @@ client.on('messageCreate', async (message) => {
 // ==========================================
 // 10. ĐĂNG NHẬP BOT
 // ==========================================
-client.login(process.env.DISCORD_TOKEN);
+const token = (process.env.DISCORD_TOKEN || '').replace(/^["']|["']$/g, '').trim();
+console.log('🔄 Đang kết nối tới Discord Gateway (IPv4)...');
+client.login(token)
+  .then(() => {
+    console.log('✅ client.login() hoàn tất xác thực với Discord!');
+  })
+  .catch((err) => {
+    console.error('❌ Lỗi đăng nhập Discord:', err.message);
+  });

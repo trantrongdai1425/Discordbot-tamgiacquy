@@ -10,6 +10,15 @@ try {
   // Bỏ qua nếu undici không sẵn sàng
 }
 
+try {
+  const ffmpeg = require('ffmpeg-static');
+  if (ffmpeg && !process.env.FFMPEG_PATH) {
+    process.env.FFMPEG_PATH = ffmpeg;
+  }
+} catch (e) {
+  // Bỏ qua nếu ffmpeg-static không tải được
+}
+
 require('dotenv').config();
 const {
   Client,
@@ -118,6 +127,8 @@ const GEMINI_MODELS = [
   'gemini-3.5-flash-lite',
   'gemini-3.7-flash',
   'gemini-3.8-flash',
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
 ];
 
 const SYSTEM_PROMPT_KHUN = `Bạn là Khun Aguero Agnis, một nhân vật xuất thân từ Gia tộc Khun (Tower of God).
@@ -203,6 +214,7 @@ async function callGemini(contents, customSystemPrompt = null, guildId = null) {
 const VOICE_NAME = 'vi-VN-NamMinhNeural';
 
 function cleanTextForTTS(text) {
+  if (!text || typeof text !== 'string') return '';
   return text
     .replace(/```[\s\S]*?```/g, ' đoạn mã ')
     .replace(/`([^`]+)`/g, '$1')
@@ -300,6 +312,7 @@ async function ensureSoundCloudClient() {
 
 // Hàm làm sạch tiêu đề video YouTube (Loại bỏ các tag rác thường gặp như [MV], [Vietsub], (4K), v.v.)
 function cleanYouTubeTitle(rawTitle) {
+  if (!rawTitle || typeof rawTitle !== 'string') return '';
   let cleaned = rawTitle
     .replace(/\[(official|audio|mv|music video|lyric|lyrics|vietsub|kara|karaoke|full hd|4k|1080p|hd|hq|prod\.[^\]]*|teasing|trailer|remix|cover|beat)[^\]]*\]/gi, '')
     .replace(/\((official|audio|mv|music video|lyric|lyrics|vietsub|kara|karaoke|full hd|4k|1080p|hd|hq|prod\.[^)]*|teasing|trailer|remix|cover|beat)[^)]*\)/gi, '')
@@ -312,6 +325,7 @@ function cleanYouTubeTitle(rawTitle) {
 
 // Bộ giải mã và tìm nạp thông tin bài hát (Hỗ trợ Từ khóa, Spotify, YouTube, SoundCloud, File trực tiếp)
 async function resolveTrackInfo(query, requestedBy) {
+  if (!query || typeof query !== 'string') return null;
   await ensureSoundCloudClient();
   let title = '';
   let artist = '';
@@ -323,8 +337,12 @@ async function resolveTrackInfo(query, requestedBy) {
   // 0. Kiểm tra link file âm thanh trực tiếp (.mp3, .wav, .ogg, .m4a)
   if (query.match(/\.(mp3|wav|ogg|m4a)(\?.*)?$/i)) {
     const filename = query.split('/').pop().split('?')[0];
+    let decodedTitle = filename;
+    try {
+      decodedTitle = decodeURIComponent(filename);
+    } catch (_) {}
     return {
-      title: decodeURIComponent(filename),
+      title: decodedTitle,
       artist: 'Direct Audio Stream',
       url: originalUrl,
       originalUrl: originalUrl,
@@ -483,19 +501,24 @@ function createMusicControlRow() {
 
 // Embed hiển thị bài hát đang phát
 function createNowPlayingEmbed(song) {
+  const reqText = song.requestedBy?.id
+    ? `<@${song.requestedBy.id}>`
+    : (song.requestedBy?.username || 'Thành viên');
+  const safeTitle = (song.title || 'Bài hát').replace(/[\[\]]/g, '').slice(0, 80);
+
   const embed = new EmbedBuilder()
-    .setTitle(`🎶 Đang Phát: ${song.title.slice(0, 80)}`)
+    .setTitle(`🎶 Đang Phát: ${safeTitle}`)
     .setDescription(
-      `**Ca sĩ / Nghệ sĩ:** ${song.artist}\n` +
-      `**Thời lượng:** \`${song.duration}\`\n` +
-      `**Người yêu cầu:** <@${song.requestedBy.id}>\n` +
-      `**Nguồn bài:** [Nhấn vào đây để xem](${song.originalUrl})`
+      `**Ca sĩ / Nghệ sĩ:** ${song.artist || 'Không rõ'}\n` +
+      `**Thời lượng:** \`${song.duration || 'N/A'}\`\n` +
+      `**Người yêu cầu:** ${reqText}\n` +
+      `**Nguồn bài:** [Nhấn vào đây để xem](${song.originalUrl || song.url})`
     )
     .setColor(0x1DB954)
     .setFooter({ text: 'Khun Aguero Agnis • Music Engine 24/7' })
     .setTimestamp();
 
-  if (song.thumbnail) {
+  if (song.thumbnail && typeof song.thumbnail === 'string' && song.thumbnail.startsWith('http')) {
     embed.setThumbnail(song.thumbnail);
   }
   return embed;
@@ -527,12 +550,15 @@ function getOrCreateVoiceSession(guildId) {
         playNextInQueue(guildId);
       } else {
         // Nếu nhạc bị tạm dừng vì TTS, tự động tiếp tục phát nhạc!
-        if (session.isMusicPausedForTTS && session.musicQueue.isPlaying) {
+        if (session.isMusicPausedForTTS) {
+          const shouldResume = session.musicQueue.isPlaying;
           session.isMusicPausedForTTS = false;
-          const connection = getVoiceConnection(guildId);
-          if (connection) {
-            connection.subscribe(session.musicPlayer);
-            session.musicPlayer.unpause();
+          if (shouldResume) {
+            const connection = getVoiceConnection(guildId);
+            if (connection) {
+              connection.subscribe(session.musicPlayer);
+              session.musicPlayer.unpause();
+            }
           }
         }
       }
@@ -543,12 +569,15 @@ function getOrCreateVoiceSession(guildId) {
       session.isPlaying = false;
       if (session.queue.length > 0) {
         playNextInQueue(guildId);
-      } else if (session.isMusicPausedForTTS && session.musicQueue.isPlaying) {
+      } else if (session.isMusicPausedForTTS) {
+        const shouldResume = session.musicQueue.isPlaying;
         session.isMusicPausedForTTS = false;
-        const connection = getVoiceConnection(guildId);
-        if (connection) {
-          connection.subscribe(session.musicPlayer);
-          session.musicPlayer.unpause();
+        if (shouldResume) {
+          const connection = getVoiceConnection(guildId);
+          if (connection) {
+            connection.subscribe(session.musicPlayer);
+            session.musicPlayer.unpause();
+          }
         }
       }
     });
@@ -658,8 +687,8 @@ function extractMusicQuery(text) {
 
   const patterns = [
     /^(?:hãy\s+)?(?:bật|mở|phát|chơi|nghe|cho\s+nghe|play)\s*(?:giúp|hộ)?\s*(?:cho\s*(?:tôi|tao|mình|anh|em)\s*)?(?:bài\s*hát|bài\s*nhạc|bản\s*nhạc|ca\s*khúc|bài|nhạc|track)?\s*:?\s*(.+)$/i,
-    /(?:bật|mở|phát|chơi|play)\s*(?:giúp|hộ)?\s*(?:cho\s*(?:tôi|tao|mình|anh|em)\s*)?(?:bài\s*hát|bài\s*nhạc|bản\s*nhạc|ca\s*khúc|bài|nhạc)\s+([^\.,!?\n]+)/i,
-    /(?:muốn\s*nghe|thích\s*nghe)\s*(?:bài\s*hát|bài\s*nhạc|bài|nhạc)?\s+([^\.,!?\n]+)/i,
+    /(?:bật|mở|phát|chơi|play)\s*(?:giúp|hộ)?\s*(?:cho\s*(?:tôi|tao|mình|anh|em)\s*)?(?:bài\s*hát|bài\s*nhạc|bản\s*nhạc|ca\s*khúc|bài|nhạc)\s+([^.,!?\n]+)/i,
+    /(?:muốn\s*nghe|thích\s*nghe)\s*(?:bài\s*hát|bài\s*nhạc|bài|nhạc)?\s+([^.,!?\n]+)/i,
   ];
 
   for (const p of patterns) {
@@ -714,8 +743,9 @@ Nếu KHÔNG yêu cầu bật nhạc (ví dụ nói chuyện phiếm, hỏi toá
       const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
       if (!rawText) continue;
 
-      const cleaned = rawText.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
-      const parsed = JSON.parse(cleaned);
+      const jsonMatch = rawText.match(/\[[\s\S]*\]/);
+      if (!jsonMatch) continue;
+      const parsed = JSON.parse(jsonMatch[0]);
       if (Array.isArray(parsed) && parsed.length > 0) {
         return parsed.map((s) => String(s).trim()).filter((s) => s.length >= 2);
       }
@@ -842,7 +872,7 @@ async function playMultipleSongsFromNaturalRequest(songList, member, channel, sp
 
     if (statusMsg) {
       if (addedTracks.length === 1) {
-        if (!isCurrentlyPlaying) {
+        if (!isActuallyPlaying) {
           await statusMsg.edit(`🎶 Đã tìm thấy và đang phát: **[${firstTrack.title}](${firstTrack.originalUrl})** theo yêu cầu của <@${member.id}>!`).catch(() => {});
         } else {
           await statusMsg.edit(`➕ Đã thêm vào hàng đợi: **[${firstTrack.title}](${firstTrack.originalUrl})** (Vị trí #${session.musicQueue.songs.length}) theo yêu cầu của <@${member.id}>!`).catch(() => {});
@@ -1013,7 +1043,7 @@ QUY TẮC:
   }
 }
 
-async function startOnDemandVoiceTalk(interaction, guildId, memberVoiceChannel) {
+async function startOnDemandVoiceTalk(interaction, guildId, _memberVoiceChannel) {
   const connection = getVoiceConnection(guildId);
   if (!connection || connection.state.status !== VoiceConnectionStatus.Ready) {
     return interaction.reply({
@@ -1044,18 +1074,6 @@ async function startOnDemandVoiceTalk(interaction, guildId, memberVoiceChannel) 
   const receiver = connection.receiver;
   let hasReceivedAudio = false;
 
-  const timeoutId = setTimeout(() => {
-    if (!hasReceivedAudio) {
-      activeVoiceListeners.delete(guildId);
-      interaction.followUp({
-        content: `⏳ Đã hết 10 giây chờ (chưa nhận thấy câu hỏi). Hãy bấm lại khi sẵn sàng nhé!`,
-        ephemeral: true,
-      }).catch(() => {});
-    }
-  }, 12000);
-
-  activeVoiceListeners.set(guildId, { userId, timeoutId });
-
   // Lắng nghe stream từ người dùng này
   const opusStream = receiver.subscribe(userId, {
     end: {
@@ -1066,6 +1084,26 @@ async function startOnDemandVoiceTalk(interaction, guildId, memberVoiceChannel) 
 
   const decoder = new prism.opus.Decoder({ frameSize: 960, channels: 2, rate: 48000 });
   const pcmChunks = [];
+
+  const cleanupStreams = () => {
+    try {
+      opusStream.destroy();
+      decoder.destroy();
+    } catch (_) {}
+  };
+
+  const timeoutId = setTimeout(() => {
+    if (!hasReceivedAudio) {
+      activeVoiceListeners.delete(guildId);
+      cleanupStreams();
+      interaction.followUp({
+        content: `⏳ Đã hết 10 giây chờ (chưa nhận thấy câu hỏi). Hãy bấm lại khi sẵn sàng nhé!`,
+        ephemeral: true,
+      }).catch(() => {});
+    }
+  }, 12000);
+
+  activeVoiceListeners.set(guildId, { userId, timeoutId });
 
   opusStream.pipe(decoder);
 
@@ -1079,9 +1117,14 @@ async function startOnDemandVoiceTalk(interaction, guildId, memberVoiceChannel) 
     clearTimeout(timeoutId);
     activeVoiceListeners.delete(guildId);
     hasReceivedAudio = true;
+    cleanupStreams();
 
     const pcmBuffer = Buffer.concat(pcmChunks);
     if (pcmBuffer.length < 100000) {
+      interaction.followUp({
+        content: `⏳ Âm thanh quá ngắn hoặc chưa rõ câu hỏi. Bạn hãy nhấn nút để thử lại nhé!`,
+        ephemeral: true,
+      }).catch(() => {});
       return;
     }
 
@@ -1097,6 +1140,7 @@ async function startOnDemandVoiceTalk(interaction, guildId, memberVoiceChannel) 
   decoder.on('error', () => {
     clearTimeout(timeoutId);
     activeVoiceListeners.delete(guildId);
+    cleanupStreams();
   });
 }
 
@@ -1128,25 +1172,26 @@ function getProfile(userId) {
 function addShinsuExp(userId, amount = 10) {
   const profile = getProfile(userId);
   profile.shinsu += amount;
-  const nextFloorExp = profile.floor * 100;
-  if (profile.shinsu >= nextFloorExp) {
+  while (profile.shinsu >= profile.floor * 100) {
     profile.floor += 1;
-    if (profile.floor === 20) profile.title = 'Regular Cấp C';
-    else if (profile.floor === 50) profile.title = 'Regular Cấp B';
-    else if (profile.floor === 80) profile.title = 'Regular Cấp A';
-    else if (profile.floor >= 100) profile.title = 'High Ranker 👑';
   }
+  if (profile.floor >= 100) profile.title = 'High Ranker 👑';
+  else if (profile.floor >= 80) profile.title = 'Regular Cấp A';
+  else if (profile.floor >= 50) profile.title = 'Regular Cấp B';
+  else if (profile.floor >= 20) profile.title = 'Regular Cấp C';
 }
 
-// Helper phân tích thời gian cho lệnh /remind
+// Helper phân tích thời gian cho lệnh /remind (hỗ trợ cả tiếng Việt: 10p, 5m, 1h, 30s)
 function parseDuration(timeStr) {
-  const match = timeStr.toLowerCase().trim().match(/^(\d+)\s*(s|m|h)$/);
+  if (!timeStr || typeof timeStr !== 'string') return null;
+  const match = timeStr.toLowerCase().trim().match(/^(\d+)\s*(s|m|h|p|g|phut|phút|gio|giờ|giay|giây)$/);
   if (!match) return null;
-  const val = parseInt(match[1]);
+  const val = parseInt(match[1], 10);
+  if (isNaN(val) || val <= 0) return null;
   const unit = match[2];
-  if (unit === 's') return val * 1000;
-  if (unit === 'm') return val * 60 * 1000;
-  if (unit === 'h') return val * 3600 * 1000;
+  if (['s', 'giay', 'giây'].includes(unit)) return val * 1000;
+  if (['m', 'p', 'phut', 'phút'].includes(unit)) return val * 60 * 1000;
+  if (['h', 'g', 'gio', 'giờ'].includes(unit)) return val * 3600 * 1000;
   return null;
 }
 
@@ -1167,6 +1212,9 @@ function addToHistory(convoId, role, parts) {
   const history = getHistory(convoId);
   history.push({ role, parts });
   if (history.length > 10) history.splice(0, history.length - 10);
+  while (history.length > 0 && history[0].role !== 'user') {
+    history.shift();
+  }
 }
 
 function clearHistory(convoId) {
@@ -1174,19 +1222,32 @@ function clearHistory(convoId) {
 }
 
 function splitMessage(text, maxLength = 1900) {
+  if (!text || typeof text !== 'string') return [''];
+  if (text.length <= maxLength) return [text];
+
   const chunks = [];
-  let currentChunk = '';
-  const lines = text.split('\n');
-  for (const line of lines) {
-    if ((currentChunk + line + '\n').length > maxLength) {
-      if (currentChunk.trim().length > 0) chunks.push(currentChunk.trim());
-      currentChunk = line + '\n';
-    } else {
-      currentChunk += line + '\n';
+  let remaining = text;
+
+  while (remaining.length > 0) {
+    if (remaining.length <= maxLength) {
+      chunks.push(remaining);
+      break;
     }
+
+    let splitIndex = remaining.lastIndexOf('\n', maxLength);
+    if (splitIndex <= 0) {
+      splitIndex = remaining.lastIndexOf(' ', maxLength);
+    }
+    if (splitIndex <= 0) {
+      splitIndex = maxLength;
+    }
+
+    const chunk = remaining.slice(0, splitIndex).trim();
+    if (chunk) chunks.push(chunk);
+    remaining = remaining.slice(splitIndex).trim();
   }
-  if (currentChunk.trim().length > 0) chunks.push(currentChunk.trim());
-  return chunks.length > 0 ? chunks : [text];
+
+  return chunks.length > 0 ? chunks : [text.slice(0, maxLength)];
 }
 
 // ==========================================
@@ -1459,8 +1520,9 @@ client.once('ready', async () => {
 // 8. XỬ LÝ TOÀN BỘ SLASH COMMANDS
 // ==========================================
 client.on('interactionCreate', async (interaction) => {
-  // Xử lý các nút bấm tương tác (Voice Control Panel)
-  if (interaction.isButton()) {
+  try {
+    // Xử lý các nút bấm tương tác (Voice Control Panel)
+    if (interaction.isButton()) {
     const guildId = interaction.guildId;
     const memberVoiceChannel = interaction.member?.voice?.channel;
 
@@ -1490,6 +1552,7 @@ client.on('interactionCreate', async (interaction) => {
       if (conn) {
         const session = guildVoiceSessions.get(guildId);
         if (session) {
+          session.isMusicPausedForTTS = false;
           session.musicPlayer.stop(true);
           session.musicQueue.songs = [];
           session.musicQueue.currentSong = null;
@@ -1540,6 +1603,7 @@ client.on('interactionCreate', async (interaction) => {
       if (!session || (!session.musicQueue.isPlaying && !session.musicQueue.currentSong)) {
         return interaction.reply({ content: '⚠️ Không có bài hát nào đang phát!', ephemeral: true });
       }
+      session.isMusicPausedForTTS = false;
       session.musicQueue.songs = [];
       session.musicQueue.currentSong = null;
       session.musicQueue.isPlaying = false;
@@ -1554,13 +1618,19 @@ client.on('interactionCreate', async (interaction) => {
         return interaction.reply({ content: '📜 Hàng đợi hiện đang trống! Dùng `/play` để thêm bài hát.', ephemeral: true });
       }
       const current = session.musicQueue.currentSong;
-      let desc = `**🎶 Đang phát:** [${current.title}](${current.originalUrl}) (\`${current.duration}\`) - <@${current.requestedBy.id}>\n\n**Danh sách chờ:**\n`;
+      const currentReq = current.requestedBy?.id ? `<@${current.requestedBy.id}>` : (current.requestedBy?.username || 'Thành viên');
+      const safeCurrentTitle = (current.title || 'Hiện tại').replace(/[\[\]]/g, '');
+      let desc = `**🎶 Đang phát:** [${safeCurrentTitle}](${current.originalUrl || current.url}) (\`${current.duration || 'N/A'}\`) - ${currentReq}\n\n**Danh sách chờ:**\n`;
       if (session.musicQueue.songs.length === 0) {
         desc += '*Không có bài hát nào tiếp theo trong hàng đợi.*';
       } else {
         const list = session.musicQueue.songs
           .slice(0, 10)
-          .map((s, idx) => `**#${idx + 1}.** [${s.title}](${s.originalUrl}) (\`${s.duration}\`) - <@${s.requestedBy.id}>`);
+          .map((s, idx) => {
+            const req = s.requestedBy?.id ? `<@${s.requestedBy.id}>` : (s.requestedBy?.username || 'Thành viên');
+            const safeTitle = (s.title || 'Bài hát').replace(/[\[\]]/g, '');
+            return `**#${idx + 1}.** [${safeTitle}](${s.originalUrl || s.url}) (\`${s.duration || 'N/A'}\`) - ${req}`;
+          });
         desc += list.join('\n');
         if (session.musicQueue.songs.length > 10) {
           desc += `\n*...và còn ${session.musicQueue.songs.length - 10} bài hát khác.*`;
@@ -1751,6 +1821,7 @@ client.on('interactionCreate', async (interaction) => {
     if (connection) {
       const session = guildVoiceSessions.get(guildId);
       if (session) {
+        session.isMusicPausedForTTS = false;
         session.musicPlayer.stop(true);
         session.musicQueue.songs = [];
         session.musicQueue.currentSong = null;
@@ -1886,6 +1957,7 @@ client.on('interactionCreate', async (interaction) => {
     if (!session || (!session.musicQueue.isPlaying && !session.musicQueue.currentSong)) {
       return interaction.reply({ content: '⚠️ Không có bài hát nào đang phát!', ephemeral: true });
     }
+    session.isMusicPausedForTTS = false;
     session.musicQueue.songs = [];
     session.musicQueue.currentSong = null;
     session.musicQueue.isPlaying = false;
@@ -1900,13 +1972,19 @@ client.on('interactionCreate', async (interaction) => {
       return interaction.reply({ content: '📜 Hàng đợi hiện đang trống! Hãy dùng `/play` để thêm bài hát.', ephemeral: true });
     }
     const current = session.musicQueue.currentSong;
-    let desc = `**🎶 Đang phát:** [${current.title}](${current.originalUrl}) (\`${current.duration}\`) - <@${current.requestedBy.id}>\n\n**Danh sách chờ:**\n`;
+    const currentReq = current.requestedBy?.id ? `<@${current.requestedBy.id}>` : (current.requestedBy?.username || 'Thành viên');
+    const safeCurrentTitle = (current.title || 'Hiện tại').replace(/[\[\]]/g, '');
+    let desc = `**🎶 Đang phát:** [${safeCurrentTitle}](${current.originalUrl || current.url}) (\`${current.duration || 'N/A'}\`) - ${currentReq}\n\n**Danh sách chờ:**\n`;
     if (session.musicQueue.songs.length === 0) {
       desc += '*Không có bài hát nào tiếp theo trong hàng đợi.*';
     } else {
       const list = session.musicQueue.songs
         .slice(0, 10)
-        .map((s, idx) => `**#${idx + 1}.** [${s.title}](${s.originalUrl}) (\`${s.duration}\`) - <@${s.requestedBy.id}>`);
+        .map((s, idx) => {
+          const req = s.requestedBy?.id ? `<@${s.requestedBy.id}>` : (s.requestedBy?.username || 'Thành viên');
+          const safeTitle = (s.title || 'Bài hát').replace(/[\[\]]/g, '');
+          return `**#${idx + 1}.** [${safeTitle}](${s.originalUrl || s.url}) (\`${s.duration || 'N/A'}\`) - ${req}`;
+        });
       desc += list.join('\n');
       if (session.musicQueue.songs.length > 10) {
         desc += `\n*...và còn ${session.musicQueue.songs.length - 10} bài hát khác.*`;
@@ -2175,6 +2253,17 @@ Dài khoảng 3 câu bằng tiếng Việt.`;
       await interaction.editReply(`⚠️ Đã có lỗi xảy ra: ${err.message}`).catch(() => {});
     }
   }
+  } catch (interactionError) {
+    console.error('❌ Lỗi tổng quát interactionCreate:', interactionError);
+    const errMsg = `⚠️ Đã có lỗi xảy ra: ${interactionError.message}`;
+    if (interaction.isRepliable()) {
+      if (interaction.deferred || interaction.replied) {
+        await interaction.editReply({ content: errMsg }).catch(() => {});
+      } else {
+        await interaction.reply({ content: errMsg, ephemeral: true }).catch(() => {});
+      }
+    }
+  }
 });
 
 // ==========================================
@@ -2405,49 +2494,52 @@ client.on('messageCreate', async (message) => {
       message.channel.sendTyping().catch(() => {});
     }, 4000);
 
-    const parts = [];
-    if (cleanText) parts.push({ text: cleanText });
+    try {
+      const parts = [];
+      if (cleanText) parts.push({ text: cleanText });
 
-    for (const [, att] of imageAttachments) {
-      const imgData = await urlToInlineData(att.url);
-      if (imgData) parts.push(imgData);
-    }
+      for (const [, att] of imageAttachments) {
+        const imgData = await urlToInlineData(att.url);
+        if (imgData) parts.push(imgData);
+      }
 
-    addToHistory(convoId, 'user', parts);
-    const replyText = await callGemini(getHistory(convoId), null, guildId);
-    clearInterval(typingInterval);
+      addToHistory(convoId, 'user', parts);
+      const replyText = await callGemini(getHistory(convoId), null, guildId);
 
-    // Kiểm tra nếu Gemini muốn phát nhạc qua thẻ [PLAY: ...]
-    const playTagMatch = replyText.match(/\[PLAY:\s*([^\]]+)\]/i);
-    let cleanedReplyText = replyText.replace(/\[PLAY:\s*[^\]]+\]/gi, '').trim();
-    if (!cleanedReplyText) cleanedReplyText = 'Tôi đang tìm và bật bài hát cho bạn đây!';
+      // Kiểm tra nếu Gemini muốn phát nhạc qua thẻ [PLAY: ...]
+      const playTagMatch = replyText.match(/\[PLAY:\s*([^\]]+)\]/i);
+      let cleanedReplyText = replyText.replace(/\[PLAY:\s*[^\]]+\]/gi, '').trim();
+      if (!cleanedReplyText) cleanedReplyText = 'Tôi đang tìm và bật bài hát cho bạn đây!';
 
-    addToHistory(convoId, 'model', [{ text: cleanedReplyText }]);
+      addToHistory(convoId, 'model', [{ text: cleanedReplyText }]);
 
-    const chunks = splitMessage(cleanedReplyText);
+      const chunks = splitMessage(cleanedReplyText);
 
-    let audioBuffer = null;
-    if (isVoiceEnabled) {
-      audioBuffer = await generateAudioBuffer(cleanedReplyText);
-    }
+      let audioBuffer = null;
+      if (isVoiceEnabled) {
+        audioBuffer = await generateAudioBuffer(cleanedReplyText);
+      }
 
-    if (isInVoiceRoom && audioBuffer) {
-      queueAudio(guildId, audioBuffer);
-      await message.reply(chunks[0]);
-    } else if (audioBuffer && !isInVoiceRoom) {
-      const voiceAttachment = new AttachmentBuilder(audioBuffer, { name: 'khun_voice.mp3' });
-      await message.reply({ content: chunks[0], files: [voiceAttachment] });
-    } else {
-      await message.reply(chunks[0]);
-    }
+      if (isInVoiceRoom && audioBuffer) {
+        queueAudio(guildId, audioBuffer);
+        await message.reply(chunks[0]);
+      } else if (audioBuffer && !isInVoiceRoom) {
+        const voiceAttachment = new AttachmentBuilder(audioBuffer, { name: 'khun_voice.mp3' });
+        await message.reply({ content: chunks[0], files: [voiceAttachment] });
+      } else {
+        await message.reply(chunks[0]);
+      }
 
-    for (let i = 1; i < chunks.length; i++) {
-      await message.channel.send(chunks[i]);
-    }
+      for (let i = 1; i < chunks.length; i++) {
+        await message.channel.send(chunks[i]);
+      }
 
-    if (playTagMatch && playTagMatch[1]) {
-      const songToPlay = playTagMatch[1].trim();
-      playMusicFromNaturalRequest(songToPlay, message.member, message.channel);
+      if (playTagMatch && playTagMatch[1]) {
+        const songToPlay = playTagMatch[1].replace(/^[\[("']|[\])"']$/g, '').trim();
+        playMusicFromNaturalRequest(songToPlay, message.member, message.channel);
+      }
+    } finally {
+      clearInterval(typingInterval);
     }
 
   } catch (error) {

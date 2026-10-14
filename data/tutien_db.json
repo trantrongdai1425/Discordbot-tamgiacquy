@@ -1,0 +1,17 @@
+{
+  "characters": {},
+  "worldBoss": {
+    "id": "boss_tram_lu",
+    "name": "Trạm Lư Ma Tôn (Thái Cổ Hung Thú)",
+    "title": "Thái Cổ Ma Thần Đệ Nhất Kiếp",
+    "currentHp": 5000000,
+    "maxHp": 5000000,
+    "atk": 1500,
+    "def": 800,
+    "isAlive": true,
+    "lastKilledAt": null,
+    "respawnAt": null,
+    "dpsTable": {}
+  },
+  "globalLogs": []
+}

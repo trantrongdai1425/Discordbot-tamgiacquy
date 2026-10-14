@@ -52,3 +52,11 @@ Tích hợp mô hình ngôn ngữ thế hệ mới **Google Gemini**, công ngh�
 * `/tactics [game] [role]`: Quét radar mô phỏng chiến thuật và tính toán xác suất chiến thắng cho trận game.
 * `/quiz [topic]`: Kích hoạt thử thách đố vui trắc nghiệm tương tác nút bấm A/B/C/D do J.A.R.V.I.S. tạo theo thời gian thực (trả lời đúng nhận +20 Joules Arc Reactor Energy).
 * `/remind [time] [task]`: Hẹn giờ nhắc việc (ví dụ: `10m Nấu cơm`) kèm giọng đọc to nhắc nhở trong phòng thoại.
+
+### 6. 🌌 Tu Chân Giới (Hệ Thống Tu Tiên Cổ Phong Đa Chủng Tộc)
+* `/tutien` hoặc gõ `!tutien` / `tutien` / `tu tiên`: Mở Thẻ Bản Mệnh Tu Sĩ & Bảng Điều Khiển Tương Tác.
+* **🧘 Bế Quan Tu Luyện:** Tự động hấp thu linh khí đất trời, tích lũy Tu Vi theo thời gian thực (kể cả khi offline).
+* **⚡ Nghênh Đón Lôi Kiếp:** Đột phá bình cảnh vượt qua 32 cảnh giới (Luyện Khí $\rightarrow$ Độ Kiếp Chân Tiên), đối mặt Thất Sắc Lôi Đình do Gemini AI miêu tả hào hùng.
+* **🗡️ Bãi Săn Yêu Thú:** Khiêu chiến hung thú theo cấp bậc, thu thập Linh Thạch, Yêu Đan, Công Pháp và Thần Thú Huyết Mạch.
+* **🐉 Boss Thế Giới (Trảm Lư Ma Tôn):** Toàn server hợp lực trảm Ma Tôn 5.000.000 HP, ghi danh Bảng Vàng Công Thần (Top DPS).
+* **🎒 Túi Trữ Vật & 🏆 Thiên Kiêu Bảng:** Quản lý đan dược, tài bảo và tôn vinh đệ nhất chân nhân server.

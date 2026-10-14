@@ -49,6 +49,18 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
+// ==========================================
+// HỆ THỐNG TU TIÊN (TU CHÂN GIỚI)
+// ==========================================
+const {
+  getOrInitCharacter,
+  handleTuTienButtonInteraction
+} = require('./tutien/tutienHandler');
+const {
+  createCharacterEmbed,
+  createMainActionRows
+} = require('./tutien/tutienUI');
+
 let loginStatus = 'Khởi tạo...';
 let loginError = null;
 let lastReadyTime = null;
@@ -1522,6 +1534,11 @@ client.once('ready', async () => {
           .setDescription('Chủ đề câu đố (Marvel, Khoa học, Công nghệ, Đố mẹo troll, v.v.)')
           .setRequired(false)
       ),
+
+    // 24. Tu Tiên (Tu Chân Giới)
+    new SlashCommandBuilder()
+      .setName('tutien')
+      .setDescription('Mở Bảng Điều Khiển Bản Mệnh Tu Sĩ & Bế Quan Tu Luyện (Tu Chân Giới)'),
   ];
 
   try {
@@ -1743,6 +1760,13 @@ client.on('interactionCreate', async (interaction) => {
       }
     }
 
+    // Xử lý các nút bấm tương tác Tu Tiên (Tu Chân Giới)
+    if (interaction.customId.startsWith('tutien_')) {
+      return handleTuTienButtonInteraction(interaction, async (prompt) => {
+        return generateAIResponse([{ role: 'user', parts: [{ text: prompt }] }], guildId);
+      });
+    }
+
     return;
   }
 
@@ -1752,6 +1776,14 @@ client.on('interactionCreate', async (interaction) => {
   const guildId = interaction.guildId;
   const connection = guildId ? getVoiceConnection(guildId) : null;
   const isInVoiceRoom = connection && connection.state.status === VoiceConnectionStatus.Ready;
+
+  // Lệnh /tutien (Tu Chân Giới)
+  if (interaction.commandName === 'tutien') {
+    const char = getOrInitCharacter(interaction.user);
+    const mainEmbed = createCharacterEmbed(char, interaction.user);
+    const buttons = createMainActionRows(char);
+    return interaction.reply({ embeds: [mainEmbed], components: buttons });
+  }
 
   // Lệnh /reset
   if (interaction.commandName === 'reset') {
@@ -2571,6 +2603,15 @@ client.on('messageCreate', async (message) => {
           return;
         }
       }
+    }
+
+    // LỆNH NHANH TU TIÊN (TU CHÂN GIỚI)
+    const rawContent = (message.content || '').trim().toLowerCase();
+    if (rawContent === '!tutien' || rawContent === '!tuvi' || rawContent === '!tudao' || rawContent === 'tutien' || rawContent === 'tu tiên') {
+      const char = getOrInitCharacter(message.author);
+      const mainEmbed = createCharacterEmbed(char, message.author);
+      const buttons = createMainActionRows(char);
+      return message.reply({ embeds: [mainEmbed], components: buttons });
     }
 
     // HỎI ĐÁP VỚI AI KHI ĐƯỢC TAG, TRONG DM HOẶC GỌI TÊN TỰ NHIÊN

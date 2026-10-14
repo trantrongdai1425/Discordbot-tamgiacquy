@@ -44,138 +44,161 @@ function renderProgressBar(current, max, size = 12) {
   return `\`[${'█'.repeat(filled)}${'░'.repeat(empty)}]\` **${percent}%**`;
 }
 
-// MENU THẢ XUỐNG ĐIỀU HƯỚNG TẤT CẢ TÍNH NĂNG (FEATURE SELECT MENU)
+// MENU THẢ XUỐNG ĐIỀU HƯỚNG TẤT CẢ TÍNH NĂNG (CATEGORIZED SELECT MENU)
 function createFeatureSelectMenu(activeFeature = 'profile') {
   const menu = new StringSelectMenuBuilder()
     .setCustomId('tutien_feature_menu')
-    .setPlaceholder('📜 Khám Phá Tam Thiên Đại Đạo (Chuyển tính năng)...')
+    .setPlaceholder('📜 Khám Phá Tam Thiên Đại Đạo (Chọn phân hệ tính năng)...')
     .addOptions([
+      // 1. TU ĐẠO & CẢNH GIỚI
       new StringSelectMenuOptionBuilder()
-        .setLabel('Bản Mệnh Tu Sĩ & Tu Luyện')
-        .setDescription('Xem thẻ căn cước, tu vi, cảnh giới và thuộc tính')
+        .setLabel('[Tu Đạo] Bản Mệnh & Tu Vi')
+        .setDescription('Xem thẻ căn cước, tu vi, cảnh giới và thuộc tính nhân vật')
         .setValue('feature_profile')
         .setEmoji('🥋')
         .setDefault(activeFeature === 'profile'),
       new StringSelectMenuOptionBuilder()
-        .setLabel('Bãi Săn Yêu Thú')
-        .setDescription('Lịch luyện trảm yêu thú, đoạt yêu đan & linh thạch')
-        .setValue('feature_hunt')
-        .setEmoji('🗡️')
-        .setDefault(activeFeature === 'hunt'),
+        .setLabel('[Tu Đạo] Nghênh Đón Lôi Kiếp')
+        .setDescription('Vượt Cửu Trọng Lôi Kiếp thăng hoa cảnh giới tiếp theo')
+        .setValue('feature_breakthrough')
+        .setEmoji('⚡')
+        .setDefault(activeFeature === 'breakthrough'),
       new StringSelectMenuOptionBuilder()
-        .setLabel('Boss Thế Giới: Trảm Lư Ma Tôn')
-        .setDescription('Hợp lực toàn server phong ấn Ma Thần 5.000.000 HP')
-        .setValue('feature_boss')
-        .setEmoji('🐉')
-        .setDefault(activeFeature === 'boss'),
-      new StringSelectMenuOptionBuilder()
-        .setLabel('Luyện Đan Phòng')
-        .setDescription('Chế tạo Thể Lực Đan, Hộ Mạch Đan, Tụ Khí Đan, Tẩy Tủy Đan')
-        .setValue('feature_alchemy')
-        .setEmoji('⚗️')
-        .setDefault(activeFeature === 'alchemy'),
-      new StringSelectMenuOptionBuilder()
-        .setLabel('Dược Điền Động Phủ')
-        .setDescription('Múc nước Giếng Tiên, tưới nước, bón phân, thu hoạch linh thảo')
-        .setValue('feature_farm')
-        .setEmoji('🌿')
-        .setDefault(activeFeature === 'farm'),
-      new StringSelectMenuOptionBuilder()
-        .setLabel('Bế Quan Tẩy Độc & Đạo Cơ')
-        .setDescription('Bài trừ cặn bã Đan Độc, củng cố độ vững chắc đan điền')
-        .setValue('feature_cleanse')
-        .setEmoji('🧪')
-        .setDefault(activeFeature === 'cleanse'),
-      new StringSelectMenuOptionBuilder()
-        .setLabel('Trích Xuất Tụ Linh Đỉnh')
-        .setDescription('Chuyển tu vi dôi dư từ kiếp trước vào đan điền')
-        .setValue('feature_reservoir')
-        .setEmoji('🏔️')
-        .setDefault(activeFeature === 'reservoir'),
-      new StringSelectMenuOptionBuilder()
-        .setLabel('Tẩy Tủy Hoán Cốt (Đổi Thể Chất)')
+        .setLabel('[Tu Đạo] Tẩy Tủy Hoán Cốt (Thể Chất)')
         .setDescription('Gieo lại thể chất (Thần Thể, Thánh Thể, Vương Thể)')
         .setValue('feature_physique')
         .setEmoji('✨')
         .setDefault(activeFeature === 'physique'),
       new StringSelectMenuOptionBuilder()
-        .setLabel('Công Pháp & Thần Thú Huyết Mạch')
+        .setLabel('[Tu Đạo] Công Pháp & Huyết Mạch')
         .setDescription('Lĩnh ngộ bí kíp, tôi luyện huyết mạch tăng vĩnh viễn uy lực')
         .setValue('feature_skills')
         .setEmoji('📖')
         .setDefault(activeFeature === 'skills'),
+
+      // 2. ĐỘNG PHỦ & CƠ SỞ TU HÀNH
       new StringSelectMenuOptionBuilder()
-        .setLabel('Càn Khôn Bảo Túi (Túi Đồ & Cắn Đan)')
+        .setLabel('[Động Phủ] Luyện Đan Phòng')
+        .setDescription('Chế tạo Thể Lực Đan, Hộ Mạch Đan, Tụ Khí Đan, Tẩy Tủy Đan')
+        .setValue('feature_alchemy')
+        .setEmoji('⚗️')
+        .setDefault(activeFeature === 'alchemy'),
+      new StringSelectMenuOptionBuilder()
+        .setLabel('[Động Phủ] Dược Điền Trồng Trọt')
+        .setDescription('Múc nước Giếng Tiên, tưới nước, bón phân, thu hoạch linh thảo')
+        .setValue('feature_farm')
+        .setEmoji('🌿')
+        .setDefault(activeFeature === 'farm'),
+      new StringSelectMenuOptionBuilder()
+        .setLabel('[Động Phủ] Bế Quan Tẩy Đan Độc')
+        .setDescription('Bài trừ cặn bã Đan Độc, củng cố độ vững chắc đan điền')
+        .setValue('feature_cleanse')
+        .setEmoji('🧪')
+        .setDefault(activeFeature === 'cleanse'),
+      new StringSelectMenuOptionBuilder()
+        .setLabel('[Động Phủ] Trích Xuất Tụ Linh Đỉnh')
+        .setDescription('Chuyển tu vi dôi dư tích lũy vào đan điền')
+        .setValue('feature_reservoir')
+        .setEmoji('🏔️')
+        .setDefault(activeFeature === 'reservoir'),
+
+      // 3. HÀNH TRANG & BẢO VẬT
+      new StringSelectMenuOptionBuilder()
+        .setLabel('[Hành Trang] Càn Khôn Bảo Túi')
         .setDescription('Quản lý đan dược, yêu đan, sử dụng vật phẩm tức thì')
         .setValue('feature_inventory')
         .setEmoji('🎒')
         .setDefault(activeFeature === 'inventory'),
       new StringSelectMenuOptionBuilder()
-        .setLabel('Hòm Thư Tiên Tín (Nhận Quà Khởi Đầu)')
-        .setDescription('Kiểm tra tiên thư, nhận 1.000 Linh Thạch và quà hỗ trợ')
-        .setValue('feature_mailbox')
-        .setEmoji('📬')
-        .setDefault(activeFeature === 'mailbox'),
+        .setLabel('[Hành Trang] Lục Đại Trang Bị')
+        .setDescription('Mặc & tháo Binh Khí, Pháp Y, Giày, Hộ Phù, Nhẫn, Dị Bảo')
+        .setValue('feature_equipment')
+        .setEmoji('🛡️')
+        .setDefault(activeFeature === 'equipment'),
+
+      // 4. CHIẾN ĐẤU & LỊCH LUYỆN
       new StringSelectMenuOptionBuilder()
-        .setLabel('Thiên Kiêu Bảng (Bảng Xếp Hạng)')
-        .setDescription('Vinh danh đệ nhất cao thủ cảnh giới toàn server')
-        .setValue('feature_leaderboard')
-        .setEmoji('🏆')
-        .setDefault(activeFeature === 'leaderboard'),
+        .setLabel('[Chiến Đấu] Bãi Săn Yêu Thú')
+        .setDescription('Lịch luyện trảm yêu thú, đoạt yêu đan & linh thạch')
+        .setValue('feature_hunt')
+        .setEmoji('🗡️')
+        .setDefault(activeFeature === 'hunt'),
       new StringSelectMenuOptionBuilder()
-        .setLabel('Thần Thức Tầm Bảo & Kỳ Ngộ')
+        .setLabel('[Chiến Đấu] Boss: Trảm Lư Ma Tôn')
+        .setDescription('Hợp lực toàn server phong ấn Ma Thần 5.000.000 HP')
+        .setValue('feature_boss')
+        .setEmoji('🐉')
+        .setDefault(activeFeature === 'boss'),
+      new StringSelectMenuOptionBuilder()
+        .setLabel('[Chiến Đấu] Luận Đạo Lôi Đài (PvP)')
+        .setDescription('Khiêu chiến đấu pháp 1v1 phân cao thấp cùng đạo hữu')
+        .setValue('feature_pvp')
+        .setEmoji('⚔️')
+        .setDefault(activeFeature === 'pvp'),
+      new StringSelectMenuOptionBuilder()
+        .setLabel('[Chiến Đấu] Bát Hoang Tầm Bảo')
         .setDescription('Tỏa thần thức quét bát hoang, tìm kiếm cơ duyên và bảo vật')
         .setValue('feature_treasure')
         .setEmoji('🔮')
         .setDefault(activeFeature === 'treasure'),
+
+      // 5. TÔNG MÔN & XÃ GIAO
       new StringSelectMenuOptionBuilder()
-        .setLabel('Huyền Thưởng & Bổng Lộc Tông Môn')
+        .setLabel('[Tông Môn] Tông Môn Điện & Khảo Hạch')
+        .setDescription('Khảo hạch thăng cấp Tạp Dịch -> Nội Môn -> Thánh Tử')
+        .setValue('feature_sect')
+        .setEmoji('🏛️')
+        .setDefault(activeFeature === 'sect'),
+      new StringSelectMenuOptionBuilder()
+        .setLabel('[Tông Môn] Huyền Thưởng & Bổng Lộc')
         .setDescription('Điểm danh nhận bổng lộc hàng ngày và nhận thưởng nhiệm vụ')
         .setValue('feature_bounty')
         .setEmoji('📜')
         .setDefault(activeFeature === 'bounty'),
       new StringSelectMenuOptionBuilder()
-        .setLabel('Đổ Thạch Phường Thị (Thần Bí)')
-        .setDescription('Chi linh thạch cắt nguyên thạch cổ kiếm phỉ thúy cực phẩm')
-        .setValue('feature_gambling')
-        .setEmoji('💎')
-        .setDefault(activeFeature === 'gambling'),
-      new StringSelectMenuOptionBuilder()
-        .setLabel('Lục Đại Trang Bị Bản Mệnh')
-        .setDescription('Mặc & tháo Binh Khí, Pháp Y, Giày, Hộ Phù, Nhẫn, Dị Bảo')
-        .setValue('feature_equipment')
-        .setEmoji('🛡️')
-        .setDefault(activeFeature === 'equipment'),
-      new StringSelectMenuOptionBuilder()
-        .setLabel('Tông Môn Điện & Khảo Hạch')
-        .setDescription('Thăng cấp Tạp Dịch -> Ngoại/Nội Môn -> Thánh Tử & nhận bổng lộc khủng')
-        .setValue('feature_sect')
-        .setEmoji('🏛️')
-        .setDefault(activeFeature === 'sect'),
-      new StringSelectMenuOptionBuilder()
-        .setLabel('Tiên Duyên Đạo Lữ & Song Tu')
-        .setDescription('Kết duyên kết tóc, bế quan song tu nhận tu vi & hộ pháp độ kiếp')
+        .setLabel('[Xã Giao] Tiên Duyên Đạo Lữ & Song Tu')
+        .setDescription('Cầu hôn kết duyên, bế quan song tu và hộ pháp độ kiếp')
         .setValue('feature_daolu')
         .setEmoji('🌸')
         .setDefault(activeFeature === 'daolu'),
       new StringSelectMenuOptionBuilder()
-        .setLabel('Lôi Hoàn Đổ Mệnh (Roulette)')
-        .setDescription('Bàn cược súng điện 6 viên thật/giả với Ma Tu tửu lâu')
+        .setLabel('[Xã Giao] Phi Kiếm Truyền Thư (Tặng Đồ)')
+        .setDescription('Gửi tặng Linh Thạch & Bảo Vật qua thư cho đạo hữu')
+        .setValue('feature_transfer')
+        .setEmoji('💌')
+        .setDefault(activeFeature === 'transfer'),
+      new StringSelectMenuOptionBuilder()
+        .setLabel('[Xã Giao] Danh Phả Đại NPC & Hảo Cảm')
+        .setDescription('Gặp gỡ NPC, tặng quà tăng hảo cảm đoạt truyền thừa gia hộ')
+        .setValue('feature_npc')
+        .setEmoji('👥')
+        .setDefault(activeFeature === 'npc'),
+
+      // 6. GIẢI TRÍ & BẢNG VÀNG
+      new StringSelectMenuOptionBuilder()
+        .setLabel('[Giải Trí] Đổ Thạch Phường Thị')
+        .setDescription('Chi linh thạch cắt nguyên thạch cổ kiếm ngọc cực phẩm')
+        .setValue('feature_gambling')
+        .setEmoji('💎')
+        .setDefault(activeFeature === 'gambling'),
+      new StringSelectMenuOptionBuilder()
+        .setLabel('[Giải Trí] Lôi Hoàn Đổ Mệnh (Roulette)')
+        .setDescription('Bàn cược súng điện 6 viên thật/giả với Ma Tu hoặc 1v1')
         .setValue('feature_buckshot')
         .setEmoji('⚡')
         .setDefault(activeFeature === 'buckshot'),
       new StringSelectMenuOptionBuilder()
-        .setLabel('Danh Phả Đại NPC & Hảo Cảm')
-        .setDescription('Gặp gỡ 31 NPC, tặng quà tăng hảo cảm đoạt truyền thừa gia hộ')
-        .setValue('feature_npc')
-        .setEmoji('👥')
-        .setDefault(activeFeature === 'npc'),
+        .setLabel('[Bảng Vàng] Thiên Kiêu Bảng')
+        .setDescription('Vinh danh đệ nhất cao thủ cảnh giới toàn server')
+        .setValue('feature_leaderboard')
+        .setEmoji('🏆')
+        .setDefault(activeFeature === 'leaderboard'),
       new StringSelectMenuOptionBuilder()
-        .setLabel('Phi Kiếm Truyền Thư (Tặng Đồ P2P)')
-        .setDescription('Gửi Linh Thạch & Bảo Vật qua hòm thư cho đạo hữu trong server')
-        .setValue('feature_transfer')
-        .setEmoji('💌')
-        .setDefault(activeFeature === 'transfer')
+        .setLabel('[Hệ Thống] Hòm Thư Tiên Tín')
+        .setDescription('Kiểm tra tiên thư, nhận 1.000 Linh Thạch và quà hỗ trợ')
+        .setValue('feature_mailbox')
+        .setEmoji('📬')
+        .setDefault(activeFeature === 'mailbox')
     ]);
 
   return new ActionRowBuilder().addComponents(menu);
@@ -268,33 +291,59 @@ function createCharacterEmbed(char, user) {
   return embed;
 }
 
-// 2. CÁC NÚT BẤM ĐIỀU KHIỂN CHÍNH (QUICK ACTION ROWS)
+// 2. CÁC NÚT BẤM ĐIỀU KHIỂN CHÍNH (CATEGORIZED QUICK ACTION ROWS)
 function createMainActionRows(char) {
   const stats = getCalculatedStats(char);
   const canBreakthrough = char.exp >= stats.maxExp;
 
   const selectRow = createFeatureSelectMenu('profile');
 
+  // Hàng 1: [Cốt Lõi Tu Vi & Độ Kiếp]
   const row1 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId('tutien_cultivate')
-      .setLabel('🧘 Bế Quan Tu Luyện')
+      .setLabel('🧘 Tu Luyện')
       .setStyle(ButtonStyle.Success),
     new ButtonBuilder()
       .setCustomId('tutien_breakthrough')
-      .setLabel(canBreakthrough ? '⚡ NGHÊNH ĐÓN LÔI KIẾP (ĐỦ TU VI)' : '⚡ Độ Kiếp Đột Phá')
-      .setStyle(canBreakthrough ? ButtonStyle.Primary : ButtonStyle.Secondary),
+      .setLabel(canBreakthrough ? '⚡ LÔI KIẾP (ĐỦ TU VI)' : '⚡ Độ Kiếp')
+      .setStyle(canBreakthrough ? ButtonStyle.Success : ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId('tutien_inventory')
+      .setLabel('🎒 Túi Đồ')
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId('tutien_equipment_view')
+      .setLabel('🛡️ Trang Bị')
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId('tutien_refresh')
+      .setLabel('🔄 Làm Mới')
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  // Hàng 2: [Lịch Luyện & Chiến Đấu]
+  const row2 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId('tutien_hunt_menu')
-      .setLabel('🗡️ Săn Yêu Thú')
+      .setLabel('🗡️ Săn Quái')
       .setStyle(ButtonStyle.Danger),
     new ButtonBuilder()
       .setCustomId('tutien_boss')
-      .setLabel('🐉 Trảm Lư Ma Tôn')
-      .setStyle(ButtonStyle.Danger)
+      .setLabel('🐉 Boss Ma Tôn')
+      .setStyle(ButtonStyle.Danger),
+    new ButtonBuilder()
+      .setCustomId('tutien_pvp_menu')
+      .setLabel('⚔️ Luận Đạo PvP')
+      .setStyle(ButtonStyle.Danger),
+    new ButtonBuilder()
+      .setCustomId('tutien_treasure_view')
+      .setLabel('🔮 Tầm Bảo')
+      .setStyle(ButtonStyle.Primary)
   );
 
-  const row2 = new ActionRowBuilder().addComponents(
+  // Hàng 3: [Động Phủ & Xã Giao]
+  const row3 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId('tutien_alchemy_view')
       .setLabel('⚗️ Luyện Đan')
@@ -304,20 +353,16 @@ function createMainActionRows(char) {
       .setLabel('🌿 Dược Điền')
       .setStyle(ButtonStyle.Secondary),
     new ButtonBuilder()
-      .setCustomId('tutien_cleanse_view')
-      .setLabel('🧪 Tẩy Đan Độc')
+      .setCustomId('tutien_sect_view')
+      .setLabel('🏛️ Tông Môn')
       .setStyle(ButtonStyle.Secondary),
     new ButtonBuilder()
-      .setCustomId('tutien_inventory')
-      .setLabel('🎒 Túi Trữ Vật')
-      .setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder()
-      .setCustomId('tutien_refresh')
-      .setLabel('🔄 Làm Mới')
-      .setStyle(ButtonStyle.Secondary)
+      .setCustomId('tutien_daolu_view')
+      .setLabel('🌸 Đạo Lữ')
+      .setStyle(ButtonStyle.Success)
   );
 
-  return [selectRow, row1, row2];
+  return [selectRow, row1, row2, row3];
 }
 
 // 3. EMBED BẾ QUAN THU HOẠCH
@@ -502,7 +547,18 @@ function createAlchemyEmbed(char, user) {
       .setDisabled(linhChi < 10 || nuocLinhKhi < 5)
   );
 
-  return { embed, components: [selectRow, rowButtons] };
+  const navRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('tutien_home')
+      .setLabel('🏠 Trang Chủ')
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId('tutien_refresh')
+      .setLabel('🔄 Làm Mới')
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  return { embed, components: [selectRow, rowButtons, navRow] };
 }
 
 // 8. EMBED DƯỢC ĐIỀN ĐỘNG PHỦ (FARM)
@@ -563,7 +619,18 @@ function createFarmEmbed(char, user) {
       .setStyle(ButtonStyle.Primary)
   );
 
-  return { embed, components: [selectRow, rowButtons] };
+  const navRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('tutien_home')
+      .setLabel('🏠 Trang Chủ')
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId('tutien_refresh')
+      .setLabel('🔄 Làm Mới')
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  return { embed, components: [selectRow, rowButtons, navRow] };
 }
 
 // 9. EMBED BẾ QUAN TẨY ĐỘC & ĐẠO CƠ (CLEANSE)
@@ -603,6 +670,10 @@ function createCleanseEmbed(char, user) {
       .setCustomId('tutien_craft_tay_tuy')
       .setLabel('💊 Luyện Tẩy Tủy Đan')
       .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId('tutien_home')
+      .setLabel('🏠 Trang Chủ')
+      .setStyle(ButtonStyle.Success),
     new ButtonBuilder()
       .setCustomId('tutien_refresh')
       .setLabel('🔄 Làm Mới')
@@ -649,6 +720,10 @@ function createReservoirEmbed(char, user) {
       .setLabel(`🏔️ Trích Xuất Tu Vi (+${Math.min(needed, stored).toLocaleString('vi-VN')} Exp)`)
       .setStyle(ButtonStyle.Primary)
       .setDisabled(stored <= 0 || needed <= 0),
+    new ButtonBuilder()
+      .setCustomId('tutien_home')
+      .setLabel('🏠 Trang Chủ')
+      .setStyle(ButtonStyle.Success),
     new ButtonBuilder()
       .setCustomId('tutien_refresh')
       .setLabel('🔄 Làm Mới')
@@ -700,7 +775,11 @@ function createPhysiqueEmbed(char, user) {
       new ButtonBuilder()
         .setCustomId('tutien_physique_reject')
         .setLabel(`❌ Giữ Lại [${currentPhysique.name}]`)
-        .setStyle(ButtonStyle.Danger)
+        .setStyle(ButtonStyle.Danger),
+      new ButtonBuilder()
+        .setCustomId('tutien_home')
+        .setLabel('🏠 Trang Chủ')
+        .setStyle(ButtonStyle.Success)
     );
   } else {
     rowButtons.addComponents(
@@ -709,6 +788,10 @@ function createPhysiqueEmbed(char, user) {
         .setLabel('✨ Tẩy Tủy Hoán Cốt (1.000 Linh Thạch)')
         .setStyle(ButtonStyle.Primary)
         .setDisabled(stones < 1000),
+      new ButtonBuilder()
+        .setCustomId('tutien_home')
+        .setLabel('🏠 Trang Chủ')
+        .setStyle(ButtonStyle.Success),
       new ButtonBuilder()
         .setCustomId('tutien_refresh')
         .setLabel('🔄 Làm Mới')
@@ -739,7 +822,6 @@ function createSkillsEmbed(char, user) {
       }).join('\n')
     : '*Chưa luyện hóa huyết thú nào.*';
 
-  // Kiểm tra bí tịch có thể học trong túi đồ
   const canLearnSkills = Object.keys(inv).filter(k => SKILLS_CONFIG[k] && inv[k] > 0 && !learned.includes(k));
   const canRefineBloods = Object.keys(inv).filter(k => BLOODLINES_CONFIG[k] && inv[k] > 0 && !bloodlines.includes(k));
 
@@ -765,13 +847,17 @@ function createSkillsEmbed(char, user) {
   const rowButtons = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId('tutien_learn_all')
-      .setLabel('📖 Lĩnh Ngộ Toàn Bộ Bí Tịch Trong Túi')
+      .setLabel('📖 Lĩnh Ngộ Toàn Bộ')
       .setStyle(ButtonStyle.Success)
       .setDisabled(canLearnSkills.length === 0 && canRefineBloods.length === 0),
     new ButtonBuilder()
       .setCustomId('tutien_hunt_menu')
-      .setLabel('🗡️ Đi Săn Quái Nhặt Bí Tịch')
-      .setStyle(ButtonStyle.Danger)
+      .setLabel('🗡️ Săn Quái Nhặt Bí Tịch')
+      .setStyle(ButtonStyle.Danger),
+    new ButtonBuilder()
+      .setCustomId('tutien_home')
+      .setLabel('🏠 Trang Chủ')
+      .setStyle(ButtonStyle.Success)
   );
 
   return { embed, components: [selectRow, rowButtons] };
@@ -811,6 +897,10 @@ function createMailboxEmbed(char, user) {
       .setLabel(`📬 Nhận Toàn Bộ Quà (${unclaimed.length})`)
       .setStyle(ButtonStyle.Success)
       .setDisabled(unclaimed.length === 0),
+    new ButtonBuilder()
+      .setCustomId('tutien_home')
+      .setLabel('🏠 Trang Chủ')
+      .setStyle(ButtonStyle.Success),
     new ButtonBuilder()
       .setCustomId('tutien_refresh')
       .setLabel('🔄 Làm Mới')
@@ -855,24 +945,28 @@ function createInventoryEmbed(char, user) {
   const rowButtons = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId('tutien_use_dan_the_luc')
-      .setLabel(`💊 Cắn Thể Lực Đan (${inv['dan_the_luc'] || 0})`)
+      .setLabel(`💊 Thể Lực (${inv['dan_the_luc'] || 0})`)
       .setStyle(ButtonStyle.Success)
       .setDisabled((inv['dan_the_luc'] || 0) <= 0),
     new ButtonBuilder()
       .setCustomId('tutien_use_dan_hoi_mau')
-      .setLabel(`🩸 Cắn Hồi Huyết Đan (${inv['dan_hoi_mau'] || 0})`)
+      .setLabel(`🩸 Hồi Máu (${inv['dan_hoi_mau'] || 0})`)
       .setStyle(ButtonStyle.Primary)
       .setDisabled((inv['dan_hoi_mau'] || 0) <= 0),
     new ButtonBuilder()
       .setCustomId('tutien_use_dan_tu_khi')
-      .setLabel(`🔮 Cắn Tụ Khí Đan (${inv['dan_tu_khi'] || 0})`)
+      .setLabel(`🔮 Tụ Khí (${inv['dan_tu_khi'] || 0})`)
       .setStyle(ButtonStyle.Secondary)
       .setDisabled((inv['dan_tu_khi'] || 0) <= 0),
     new ButtonBuilder()
       .setCustomId('tutien_use_dan_truc_co')
-      .setLabel(`🌿 Cắn Trúc Cơ Đan (${inv['dan_truc_co'] || 0})`)
+      .setLabel(`🌿 Trúc Cơ (${inv['dan_truc_co'] || 0})`)
       .setStyle(ButtonStyle.Secondary)
-      .setDisabled((inv['dan_truc_co'] || 0) <= 0)
+      .setDisabled((inv['dan_truc_co'] || 0) <= 0),
+    new ButtonBuilder()
+      .setCustomId('tutien_home')
+      .setLabel('🏠 Trang Chủ')
+      .setStyle(ButtonStyle.Success)
   );
 
   return { embed, components: [selectRow, rowButtons] };
@@ -907,8 +1001,18 @@ function createLeaderboardEmbed(characters) {
     .setTimestamp();
 
   const selectRow = createFeatureSelectMenu('leaderboard');
+  const navRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('tutien_home')
+      .setLabel('🏠 Trang Chủ')
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId('tutien_refresh')
+      .setLabel('🔄 Làm Mới')
+      .setStyle(ButtonStyle.Secondary)
+  );
 
-  return { embed, components: [selectRow] };
+  return { embed, components: [selectRow, navRow] };
 }
 
 // 16. EMBED LUẬN ĐẠO LÔI ĐÀI (PVP 1V1)
@@ -985,6 +1089,10 @@ function createTreasureEmbed(char, user, encounterResult = null) {
       .setStyle(ButtonStyle.Primary)
       .setDisabled(stamina < 10),
     new ButtonBuilder()
+      .setCustomId('tutien_home')
+      .setLabel('🏠 Trang Chủ')
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
       .setCustomId('tutien_refresh')
       .setLabel('🔄 Làm Mới')
       .setStyle(ButtonStyle.Secondary)
@@ -1042,7 +1150,11 @@ function createBountyEmbed(char, user, actionMsg = null) {
       .setStyle(ButtonStyle.Primary),
     new ButtonBuilder()
       .setCustomId('tutien_heal_hp')
-      .setLabel('💖 Vận Công Hồi Máu 100%')
+      .setLabel('💖 Hồi Máu 100%')
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId('tutien_home')
+      .setLabel('🏠 Trang Chủ')
       .setStyle(ButtonStyle.Success)
   );
 
@@ -1088,14 +1200,18 @@ function createGamblingEmbed(char, user, cutResult = null) {
   const rowButtons = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId('tutien_gamble_small')
-      .setLabel('💎 Cắt Thạch Nhỏ (200 Linh Thạch)')
+      .setLabel('💎 Cắt Thạch Nhỏ (200 LT)')
       .setStyle(ButtonStyle.Primary)
       .setDisabled(stones < 200),
     new ButtonBuilder()
       .setCustomId('tutien_gamble_large')
-      .setLabel('👑 Đại Đổ Thạch (1.000 Linh Thạch)')
+      .setLabel('👑 Đại Đổ Thạch (1.000 LT)')
       .setStyle(ButtonStyle.Danger)
       .setDisabled(stones < 1000),
+    new ButtonBuilder()
+      .setCustomId('tutien_home')
+      .setLabel('🏠 Trang Chủ')
+      .setStyle(ButtonStyle.Success),
     new ButtonBuilder()
       .setCustomId('tutien_refresh')
       .setLabel('🔄 Làm Mới')
@@ -1104,31 +1220,6 @@ function createGamblingEmbed(char, user, cutResult = null) {
 
   return { embed, components: [selectRow, rowButtons] };
 }
-
-module.exports = {
-  RACE_COLORS,
-  renderProgressBar,
-  createFeatureSelectMenu,
-  createCharacterEmbed,
-  createMainActionRows,
-  createCultivateResultEmbed,
-  createTribulationEmbed,
-  createCombatEmbed,
-  createWorldBossEmbed,
-  createAlchemyEmbed,
-  createFarmEmbed,
-  createCleanseEmbed,
-  createReservoirEmbed,
-  createPhysiqueEmbed,
-  createSkillsEmbed,
-  createMailboxEmbed,
-  createInventoryEmbed,
-  createLeaderboardEmbed,
-  createPvPEmbed,
-  createTreasureEmbed,
-  createBountyEmbed,
-  createGamblingEmbed
-};
 
 // 20. EMBED LỤC ĐẠI TRANG BỊ BẢN MỆNH (DOC 21, 23)
 function createEquipmentEmbed(char, user, actionMsg = null) {
@@ -1173,14 +1264,18 @@ function createEquipmentEmbed(char, user, actionMsg = null) {
   const rowButtons = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId('tutien_equip_quick')
-      .setLabel('⚡ Mặc Nhanh Trang Bị Tốt Nhất')
+      .setLabel('⚡ Mặc Nhanh')
       .setStyle(ButtonStyle.Success)
       .setDisabled(equipableItems.length === 0),
     new ButtonBuilder()
       .setCustomId('tutien_unequip_all')
-      .setLabel('🛑 Tháo Toàn Bộ Trang Bị')
+      .setLabel('🛑 Tháo Toàn Bộ')
       .setStyle(ButtonStyle.Danger)
       .setDisabled(!slots.some(s => s.id)),
+    new ButtonBuilder()
+      .setCustomId('tutien_home')
+      .setLabel('🏠 Trang Chủ')
+      .setStyle(ButtonStyle.Success),
     new ButtonBuilder()
       .setCustomId('tutien_refresh')
       .setLabel('🔄 Làm Mới')
@@ -1226,13 +1321,17 @@ function createSectEmbed(char, user, actionMsg = null) {
   const rowButtons = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId('tutien_sect_promote')
-      .setLabel(canPromote ? `🏛️ Vượt Khảo Hạch -> ${nextRank?.name}` : '🔒 Chưa Đủ Điều Kiện Thăng Cấp')
+      .setLabel(canPromote ? `🏛️ Thăng Cấp -> ${nextRank?.name}` : '🔒 Chưa Đủ ĐK Thăng Cấp')
       .setStyle(canPromote ? ButtonStyle.Success : ButtonStyle.Secondary)
       .setDisabled(!canPromote),
     new ButtonBuilder()
       .setCustomId('tutien_stipend_claim')
       .setLabel('🎁 Nhận Bổng Lộc Hôm Nay')
       .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId('tutien_home')
+      .setLabel('🏠 Trang Chủ')
+      .setStyle(ButtonStyle.Success),
     new ButtonBuilder()
       .setCustomId('tutien_refresh')
       .setLabel('🔄 Làm Mới')
@@ -1287,6 +1386,10 @@ function createDaoLuEmbed(char, user, actionMsg = null) {
       .setStyle(ButtonStyle.Danger)
       .setDisabled(!hasPartner),
     new ButtonBuilder()
+      .setCustomId('tutien_home')
+      .setLabel('🏠 Trang Chủ')
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
       .setCustomId('tutien_refresh')
       .setLabel('🔄 Làm Mới')
       .setStyle(ButtonStyle.Secondary)
@@ -1305,18 +1408,32 @@ function createBuckshotEmbed(game, user) {
 
   let resultNotice = '';
   if (game.isFinished) {
-    resultNotice = game.winner === 'player'
-      ? `\n\n🎉 **CHIẾN THẮNG TUYỆT ĐỐI!** Nhận trọn vẹn: \`+${(game.betStones * 2).toLocaleString('vi-VN')} Linh Thạch\`!`
-      : `\n\n💀 **TỬ TRẬN TRÊN BÀN CƯỢC!** Mất trắng \`${game.betStones.toLocaleString('vi-VN')} Linh Thạch\`!`;
+    if (game.isPvp) {
+      const winnerName = game.winner === 'player' ? (game.playerName || `<@${game.userId}>`) : game.foeName;
+      resultNotice = `\n\n🎉 **CHIẾN THẮNG TUYỆT ĐỐI!** Đạo hữu **${winnerName}** đã sống sót trên bàn cược, đoạt trọn: \`+${(game.betStones * 2).toLocaleString('vi-VN')} Linh Thạch\`!`;
+    } else {
+      resultNotice = game.winner === 'player'
+        ? `\n\n🎉 **CHIẾN THẮNG TUYỆT ĐỐI!** Nhận trọn vẹn: \`+${(game.betStones * 2).toLocaleString('vi-VN')} Linh Thạch\`!`
+        : `\n\n💀 **TỬ TRẬN TRÊN BÀN CƯỢC!** Mất trắng \`${game.betStones.toLocaleString('vi-VN')} Linh Thạch\`!`;
+    }
   }
 
+  let turnNotice = '';
+  if (game.isPvp && !game.isFinished) {
+    turnNotice = `\n🎯 **LƯỢT ĐI HIỆN TẠI:** <@${game.currentTurnUserId}> (${game.currentTurnUserId === game.userId ? (game.playerName || 'Người Thách Đấu') : game.foeName})\n`;
+  }
+
+  const p1Name = game.playerName || `<@${game.userId}>`;
+  const p2Name = game.foeName || 'Ma Tu Sòng Bạc';
+
   const embed = new EmbedBuilder()
-    .setTitle(`⚡ BẤT DẠ THIÊN TỬU LÂU • LÔI HOÀN ĐỔ MỆNH`)
+    .setTitle(`⚡ BẤT DẠ THIÊN TỬU LÂU • LÔI HOÀN ĐỔ MỆNH ${game.isPvp ? '(1V1)' : ''}`)
     .setDescription(
-      `*Bàn cờ bạc sinh tử giữa Đạo Hữu và Ma Tu sòng bạc (Cược: ${game.betStones.toLocaleString('vi-VN')} LT)*\n\n` +
-      `🧑 **Đạo Hữu:** ${playerHearts} (\`${game.playerHp}/3 Máu\`)\n` +
-      `👹 **${game.foeName}:** ${foeHearts} (\`${game.foeHp}/3 Máu\`)\n` +
-      `🔫 **Lôi Hoàn Cổ Khí:** Còn **${bulletsLeft} viên lôi đan** trong nòng (${game.sawedOff ? '🔥 **Nòng Đao X2 Sát Thương!**' : 'Chuẩn'})\n\n` +
+      `*Bàn cờ bạc sinh tử giữa **${p1Name}** và **${p2Name}** (Cược: ${game.betStones.toLocaleString('vi-VN')} LT)*\n\n` +
+      `🧑 **${p1Name}:** ${playerHearts} (\`${game.playerHp}/3 Máu\`)\n` +
+      `👹 **${p2Name}:** ${foeHearts} (\`${game.foeHp}/3 Máu\`)\n` +
+      `🔫 **Lôi Hoàn Cổ Khí:** Còn **${bulletsLeft} viên lôi đan** trong nòng (${game.sawedOff ? '🔥 **Nòng Đao X2 Sát Thương!**' : 'Chuẩn'})\n` +
+      `${turnNotice}\n` +
       `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
       `📜 **DIỄN BIẾN HIỆP TRƯỚC:**\n${recentLogs}${resultNotice}`
     )
@@ -1328,18 +1445,23 @@ function createBuckshotEmbed(game, user) {
   const actionRow1 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId('tutien_buck_self')
-      .setLabel('💥 Tự Bắn Vào Ngực (Cược Lượt)')
+      .setLabel('💥 Tự Bắn Ngực (Cược Lượt)')
       .setStyle(ButtonStyle.Primary)
       .setDisabled(game.isFinished),
     new ButtonBuilder()
       .setCustomId('tutien_buck_foe')
-      .setLabel('⚡ Chĩa Súng Bắn Ma Tu')
+      .setLabel('⚡ Bắn Đối Thủ')
       .setStyle(ButtonStyle.Danger)
       .setDisabled(game.isFinished),
     new ButtonBuilder()
       .setCustomId('tutien_buck_restart')
       .setLabel('🔄 Ván Mới (200 LT)')
       .setStyle(ButtonStyle.Secondary)
+      .setDisabled(game.isPvp),
+    new ButtonBuilder()
+      .setCustomId('tutien_home')
+      .setLabel('🏠 Trang Chủ')
+      .setStyle(ButtonStyle.Success)
   );
 
   const actionRow2 = new ActionRowBuilder().addComponents(
@@ -1357,7 +1479,7 @@ function createBuckshotEmbed(game, user) {
       .setCustomId('tutien_buck_thuoc')
       .setLabel('💊 Hồi +1 Máu')
       .setStyle(ButtonStyle.Secondary)
-      .setDisabled(game.isFinished || !game.tacticalItems.includes('hoi_xuan') || game.playerHp >= 3)
+      .setDisabled(game.isFinished || !game.tacticalItems.includes('hoi_xuan') || (game.isPvp ? false : game.playerHp >= 3))
   );
 
   return { embed, components: [selectRow, actionRow1, actionRow2] };
@@ -1406,7 +1528,11 @@ function createNpcEmbed(char, user, selectedNpcKey = 'huyen_co', actionMsg = nul
     new ButtonBuilder()
       .setCustomId('tutien_npc_next')
       .setLabel('⏭️ Đổi NPC Khác')
-      .setStyle(ButtonStyle.Secondary)
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId('tutien_home')
+      .setLabel('🏠 Trang Chủ')
+      .setStyle(ButtonStyle.Success)
   );
 
   return { embed, components: [selectRow, rowButtons] };
@@ -1437,8 +1563,12 @@ function createTransferEmbed(char, user, actionMsg = null) {
   const rowButtons = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId('tutien_mailbox_view')
-      .setLabel('📬 Mở Hòm Thư Của Tôi')
+      .setLabel('📬 Mở Hòm Thư')
       .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId('tutien_home')
+      .setLabel('🏠 Trang Chủ')
+      .setStyle(ButtonStyle.Success),
     new ButtonBuilder()
       .setCustomId('tutien_refresh')
       .setLabel('🔄 Làm Mới')
@@ -1446,6 +1576,110 @@ function createTransferEmbed(char, user, actionMsg = null) {
   );
 
   return { embed, components: [selectRow, rowButtons] };
+}
+
+// 26. EMBED CHIẾN THƯ KHIÊU CHIẾN LUẬN ĐẠO (PVP INVITATION)
+function createPvPInviteEmbed(charA, charB, userA, userB) {
+  const statsA = getCalculatedStats(charA);
+  const statsB = getCalculatedStats(charB);
+
+  const embed = new EmbedBuilder()
+    .setTitle(`⚔️ CHIẾN THƯ LUẬN ĐẠO • THƯ THÁCH ĐẤU 1V1`)
+    .setDescription(
+      `Đạo hữu <@${userA.id}> (**${charA.name}**) đã phát chiến thư khiêu chiến lên Luận Đạo Lôi Đài!\n\n` +
+      `👤 **Người Khiêu Chiến:** <@${userA.id}>\n` +
+      `• Đạo Hiệu: **${charA.name}**\n` +
+      `• Cảnh Giới: **${statsA.realmName}** | Khí Huyết: \`${statsA.hp.toLocaleString()} HP\`\n` +
+      `• Công Kích: \`${statsA.atk}\` | Phòng Ngự: \`${statsA.def}\`\n\n` +
+      `🎯 **Đạo Hữu Được Thách Đấu:** <@${userB.id}>\n` +
+      `• Đạo Hiệu: **${charB.name}**\n` +
+      `• Cảnh Giới: **${statsB.realmName}** | Khí Huyết: \`${statsB.hp.toLocaleString()} HP\`\n` +
+      `• Công Kích: \`${statsB.atk}\` | Phòng Ngự: \`${statsB.def}\`\n\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `> *"Đạo pháp tự nhiên, võ đạo vô cương. Hãy để thần thông phân định cao thấp!"*\n\n` +
+      `⏰ **Lưu ý:** Chỉ đạo hữu <@${userB.id}> mới có quyền bấm **Ứng Chiến** hoặc **Khước Từ** bên dưới!`
+    )
+    .setColor(0xE74C3C)
+    .setFooter({ text: 'Luận Đạo Lôi Đài • Đấu pháp tao nhã, không tổn thương chân thân vĩnh viễn!' })
+    .setTimestamp();
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`tutien_pvp_accept_${userA.id}_${userB.id}`)
+      .setLabel('⚔️ Ứng Chiến Ngay')
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId(`tutien_pvp_decline_${userA.id}_${userB.id}`)
+      .setLabel('🏳️ Khước Từ')
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  return { embed, components: [row] };
+}
+
+// 27. EMBED TIÊN DUYÊN CẦU HÔN (MARRIAGE PROPOSAL INVITATION)
+function createMarryInviteEmbed(charA, charB, userA, userB) {
+  const embed = new EmbedBuilder()
+    .setTitle(`💍 TIÊN DUYÊN CẦU HÔN • HỒNG NHAN TRI KỶ`)
+    .setDescription(
+      `Đạo hữu <@${userA.id}> (**${charA.name}**) mang theo **Định Tình Ngọc Bội** và **5.000 Linh Thạch** chí thành cầu hôn đạo hữu <@${userB.id}> (**${charB.name}**)!\n\n` +
+      `> *"Hồng trần cuồn cuộn, tu tiên vạn năm cô độc.\n` +
+      `> Nguyện cùng người kết tóc se duyên, đồng thọ cùng nhật nguyệt.\n` +
+      `> Khi lôi kiếp giáng lâm nguyện vì người gánh đỡ 35% thiên lôi!"*\n\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `💖 **LỢI ÍCH TIÊN DUYÊN SONG TU:**\n` +
+      `• Mỗi 24 giờ cùng bế quan nhận **3 giờ Tu Vi** & thanh trừ **10% Đan Độc**.\n` +
+      `• Đạo Lữ tự động xuất hiện hộ pháp, chặn **35% sát thương Lôi Kiếp** khi độ kiếp!\n\n` +
+      `⏰ **Lưu ý:** Chỉ đạo hữu <@${userB.id}> mới có quyền chấp nhận hoặc từ chối!`
+    )
+    .setColor(0xFF69B4)
+    .setFooter({ text: 'Tiên Duyên Đạo Lữ • Vĩnh kết đồng tâm, vạn kiếp bất diệt!' })
+    .setTimestamp();
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`tutien_marry_accept_${userA.id}_${userB.id}`)
+      .setLabel('💖 Đồng Ý Kết Duyên')
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId(`tutien_marry_decline_${userA.id}_${userB.id}`)
+      .setLabel('💔 Khước Từ Tiên Duyên')
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  return { embed, components: [row] };
+}
+
+// 28. EMBED THIẾT LẬP BÀN CƯỢC LÔI HOÀN 1V1 (BUCKSHOT 1V1 INVITATION)
+function createBuckshotInviteEmbed(charA, charB, userA, userB, betStones = 200) {
+  const embed = new EmbedBuilder()
+    .setTitle(`⚡ LÔI HOÀN ĐỔ MỆNH • BÀN CƯỢC SINH TỬ 1V1`)
+    .setDescription(
+      `Đạo hữu <@${userA.id}> (**${charA.name}**) đã đặt cược **${betStones.toLocaleString('vi-VN')} Linh Thạch** thách thức đạo hữu <@${userB.id}> (**${charB.name}**) lên bàn cược Lôi Hoàn!\n\n` +
+      `🎲 **LUẬT CHƠI BÀN CƯỢC SINH TỬ:**\n` +
+      `• Khẩu Lôi Hoàn nạp ngẫu nhiên đạn thật và đạn giả.\n` +
+      `• Mỗi bên 3 giọt máu. Tự bắn ngực (trúng đạn giả được đi tiếp, thật mất 1 máu). Bắn đối thủ (thật mất máu, giả mất lượt).\n` +
+      `• Người chiến thắng đoạt trọn tiền cược: **${(betStones * 2).toLocaleString('vi-VN')} Linh Thạch**!\n\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `> *"Có gan thì lên bàn, không gan thì rút lui!"*\n\n` +
+      `⏰ **Lưu ý:** Chỉ đạo hữu <@${userB.id}> mới có quyền bấm **Lên Bàn Cược** hoặc **Rút Lui**!`
+    )
+    .setColor(0xF39C12)
+    .setFooter({ text: 'Bất Dạ Thiên Tửu Lâu • Sinh tử hữu mệnh, phú quý tại thiên!' })
+    .setTimestamp();
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`tutien_buck_accept_${userA.id}_${userB.id}_${betStones}`)
+      .setLabel('🎲 Lên Bàn Cược Ngay')
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId(`tutien_buck_decline_${userA.id}_${userB.id}`)
+      .setLabel('🏃 Rút Lui')
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  return { embed, components: [row] };
 }
 
 module.exports = {
@@ -1476,6 +1710,10 @@ module.exports = {
   createDaoLuEmbed,
   createBuckshotEmbed,
   createNpcEmbed,
-  createTransferEmbed
+  createTransferEmbed,
+  createPvPInviteEmbed,
+  createMarryInviteEmbed,
+  createBuckshotInviteEmbed
 };
+
 

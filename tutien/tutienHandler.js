@@ -38,6 +38,13 @@ const {
 } = require('./db');
 
 const {
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle
+} = require('discord.js');
+
+const {
   createCharacterEmbed,
   createMainActionRows,
   createCultivateResultEmbed,
@@ -62,7 +69,10 @@ const {
   createDaoLuEmbed,
   createBuckshotEmbed,
   createNpcEmbed,
-  createTransferEmbed
+  createTransferEmbed,
+  createPvPInviteEmbed,
+  createMarryInviteEmbed,
+  createBuckshotInviteEmbed
 } = require('./tutienUI');
 
 // Bộ nhớ đệm mini-game và trạng thái
@@ -446,6 +456,44 @@ async function handleTuTienSelectMenu(interaction) {
     return interaction.update({ embeds: [embed], components: rows }).catch(() => {});
   }
 
+  if (value === 'feature_cultivate') {
+    const result = await handleCultivate(user);
+    const cultivateEmbed = createCultivateResultEmbed(result.char, result.gainedExp, result.elapsedSec);
+    const mainEmbed = createCharacterEmbed(result.char, user);
+    const rows = createMainActionRows(result.char);
+    return interaction.update({ embeds: [mainEmbed, cultivateEmbed], components: rows }).catch(() => {});
+  }
+
+  if (value === 'feature_breakthrough') {
+    await interaction.deferUpdate().catch(() => {});
+    const result = await handleBreakthrough(user);
+    if (result.error) {
+      return interaction.followUp({ content: result.error, ephemeral: true }).catch(() => {});
+    }
+    const tribEmbed = createTribulationEmbed(result.char, result.tribResult, result.aiStory);
+    const mainEmbed = createCharacterEmbed(result.char, user);
+    const rows = createMainActionRows(result.char);
+    return interaction.editReply({ embeds: [mainEmbed, tribEmbed], components: rows }).catch(() => {});
+  }
+
+  if (value === 'feature_pvp') {
+    const embed = new EmbedBuilder()
+      .setTitle('⚔️ LUẬN ĐẠO LÔI ĐÀI • TỶ VÕ ĐỒNG TU')
+      .setDescription(
+        `Để khiêu chiến đấu pháp 1v1 cùng một đạo hữu trong máy chủ, hãy dùng lệnh:\n\n` +
+        `👉 **\`/pvp @ĐạoHữu\`** hoặc **\`!pvp @ĐạoHữu\`**\n\n` +
+        `Đối phương sẽ nhận được **Chiến Thư Luận Đạo** kèm nút **[Ứng Chiến Ngay]** và **[Khước Từ]**!\n` +
+        `• Tự động tính toán Cảnh Giới, Công Kích, Phòng Ngự, Thân Pháp & Thần Thông.\n` +
+        `• Tỷ võ giao lưu, bảo đảm không tổn thương đạo cơ hay tu vi vĩnh viễn.`
+      )
+      .setColor(0xE74C3C)
+      .setFooter({ text: 'Luận Đạo Lôi Đài • Đấu pháp tao nhã' });
+    const homeRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('tutien_home').setLabel('🏠 Trang Chủ').setStyle(ButtonStyle.Secondary)
+    );
+    return interaction.update({ embeds: [embed], components: [homeRow] }).catch(() => {});
+  }
+
   if (value === 'feature_hunt') {
     const result = await handleHunt(user);
     if (result.error) {
@@ -624,10 +672,47 @@ async function handleTuTienButtonInteraction(interaction, aiStoryGenerator = nul
     return interaction.editReply({ embeds: [mainEmbed, bossEmbed], components: buttons }).catch(() => {});
   }
 
-  if (customId === 'tutien_refresh') {
+  if (customId === 'tutien_refresh' || customId === 'tutien_home') {
     const mainEmbed = createCharacterEmbed(char, user);
     const buttons = createMainActionRows(char);
     return interaction.update({ embeds: [mainEmbed], components: buttons }).catch(() => {});
+  }
+
+  if (customId === 'tutien_pvp_menu') {
+    const embed = new EmbedBuilder()
+      .setTitle('⚔️ LUẬN ĐẠO LÔI ĐÀI • HƯỚNG DẪN TỶ VÕ')
+      .setDescription(
+        `Để luận đạo đấu pháp 1v1 cùng một đạo hữu trong máy chủ, hãy gõ lệnh:\n\n` +
+        `👉 **\`/pvp @ĐạoHữu\`** hoặc **\`!pvp @ĐạoHữu\`**\n\n` +
+        `Đối phương sẽ nhận được **Chiến Thư Luận Đạo** kèm nút **[Ứng Chiến Ngay]** và **[Khước Từ]**!\n` +
+        `• Đấu pháp hòa nhã, không tổn thương chân thân vĩnh viễn.`
+      )
+      .setColor(0xE74C3C)
+      .setFooter({ text: 'Luận Đạo Lôi Đài • Đấu pháp tao nhã' });
+    const homeRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('tutien_home').setLabel('🏠 Trang Chủ').setStyle(ButtonStyle.Secondary)
+    );
+    return interaction.update({ embeds: [embed], components: [homeRow] }).catch(() => {});
+  }
+
+  if (customId === 'tutien_equipment_view') {
+    const { embed, components } = createEquipmentEmbed(char, user);
+    return interaction.update({ embeds: [embed], components }).catch(() => {});
+  }
+
+  if (customId === 'tutien_treasure_view') {
+    const { embed, components } = createTreasureEmbed(char, user);
+    return interaction.update({ embeds: [embed], components }).catch(() => {});
+  }
+
+  if (customId === 'tutien_sect_view') {
+    const { embed, components } = createSectEmbed(char, user);
+    return interaction.update({ embeds: [embed], components }).catch(() => {});
+  }
+
+  if (customId === 'tutien_daolu_view') {
+    const { embed, components } = createDaoLuEmbed(char, user);
+    return interaction.update({ embeds: [embed], components }).catch(() => {});
   }
 
   // --- 2. LUYỆN ĐAN PHÒNG (ALCHEMY) ---
@@ -1058,6 +1143,140 @@ async function handleTuTienButtonInteraction(interaction, aiStoryGenerator = nul
     return interaction.update({ embeds: [embed], components }).catch(() => {});
   }
 
+  // --- A. CHIẾN THƯ LUẬN ĐẠO (PVP 1V1 INVITATION) ---
+  if (customId.startsWith('tutien_pvp_accept_')) {
+    const parts = customId.split('_');
+    const userAId = parts[3];
+    const userBId = parts[4];
+    if (user.id !== userBId) {
+      return interaction.reply({ content: '⚠️ Chỉ đạo hữu được khiêu chiến mới có quyền tiếp nhận chiến thư!', ephemeral: true });
+    }
+    const userA = await interaction.client.users.fetch(userAId).catch(() => ({ id: userAId, username: 'Đạo Hữu' }));
+    const charA = getOrInitCharacter(userA);
+    const charB = getOrInitCharacter(user);
+    const { combatResult } = await handlePvP(userA, user);
+    const pvpEmbed = createPvPEmbed(charA, charB, userA, user, combatResult);
+    const homeRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('tutien_home').setLabel('🏠 Trang Chủ').setStyle(ButtonStyle.Secondary)
+    );
+    return interaction.update({ content: '⚔️ **TRẬN LUẬN ĐẠO ĐÃ HOÀN TẤT!**', embeds: [pvpEmbed], components: [homeRow] }).catch(() => {});
+  }
+
+  if (customId.startsWith('tutien_pvp_decline_')) {
+    const parts = customId.split('_');
+    const userAId = parts[3];
+    const userBId = parts[4];
+    if (user.id !== userBId) {
+      return interaction.reply({ content: '⚠️ Chỉ đạo hữu được khiêu chiến mới có quyền khước từ!', ephemeral: true });
+    }
+    return interaction.update({
+      content: `🏳️ Đạo hữu <@${userBId}> đã khước từ chiến thư từ <@${userAId}>! Cả hai hòa khí sinh tài.`,
+      embeds: [],
+      components: []
+    }).catch(() => {});
+  }
+
+  // --- B. TIÊN DUYÊN CẦU HÔN (MARRIAGE INVITATION) ---
+  if (customId.startsWith('tutien_marry_accept_')) {
+    const parts = customId.split('_');
+    const userAId = parts[3];
+    const userBId = parts[4];
+    if (user.id !== userBId) {
+      return interaction.reply({ content: '⚠️ Chỉ đối tượng được cầu hôn mới có quyền đồng ý kết duyên!', ephemeral: true });
+    }
+    const userA = await interaction.client.users.fetch(userAId).catch(() => ({ id: userAId, username: 'Đạo Hữu' }));
+    const charA = getOrInitCharacter(userA);
+    const charB = getOrInitCharacter(user);
+    const res = marryPartner(charA, charB);
+    if (res.error) {
+      return interaction.reply({ content: `⚠️ Không thể kết duyên: ${res.error}`, ephemeral: true });
+    }
+    saveCharacter(userAId, charA);
+    saveCharacter(userBId, charB);
+    const { embed, components } = createDaoLuEmbed(charB, user, `🎉 Chúc mừng! <@${userAId}> và <@${userBId}> đã chính thức kết duyên Đạo Lữ, vĩnh kết đồng tâm!`);
+    return interaction.update({
+      content: `💍 **HÔN LỄ TIÊN GIỚI ĐÃ THÀNH!** Xin chúc phúc cho đôi tân nhân <@${userAId}> và <@${userBId}>!`,
+      embeds: [embed],
+      components
+    }).catch(() => {});
+  }
+
+  if (customId.startsWith('tutien_marry_decline_')) {
+    const parts = customId.split('_');
+    const userAId = parts[3];
+    const userBId = parts[4];
+    if (user.id !== userBId) {
+      return interaction.reply({ content: '⚠️ Chỉ đối tượng được cầu hôn mới có quyền khước từ!', ephemeral: true });
+    }
+    return interaction.update({
+      content: `💔 Đạo hữu <@${userBId}> đã từ chối lời cầu hôn từ <@${userAId}>. Duyên phận chưa tới, xin chớ nản lòng!`,
+      embeds: [],
+      components: []
+    }).catch(() => {});
+  }
+
+  // --- C. BÀN CƯỢC LÔI HOÀN 1V1 (BUCKSHOT INVITATION) ---
+  if (customId.startsWith('tutien_buck_accept_')) {
+    const parts = customId.split('_');
+    const userAId = parts[3];
+    const userBId = parts[4];
+    const bet = parseInt(parts[5], 10) || 200;
+    if (user.id !== userBId) {
+      return interaction.reply({ content: '⚠️ Chỉ đạo hữu được thách đấu mới có quyền lên bàn cược!', ephemeral: true });
+    }
+    const userA = await interaction.client.users.fetch(userAId).catch(() => ({ id: userAId, username: 'Đạo Hữu' }));
+    const charA = getOrInitCharacter(userA);
+    const charB = getOrInitCharacter(user);
+    if ((charA.spiritStones || 0) < bet) {
+      return interaction.reply({ content: `⚠️ Đạo hữu <@${userAId}> không còn đủ ${bet.toLocaleString('vi-VN')} Linh Thạch để cược!`, ephemeral: true });
+    }
+    if ((charB.spiritStones || 0) < bet) {
+      return interaction.reply({ content: `⚠️ Đạo hữu không có đủ ${bet.toLocaleString('vi-VN')} Linh Thạch để cược!`, ephemeral: true });
+    }
+    charA.spiritStones -= bet;
+    charB.spiritStones -= bet;
+    saveCharacter(userAId, charA);
+    saveCharacter(userBId, charB);
+
+    const bullets = [true, true, true, false, false, false].sort(() => Math.random() - 0.5);
+    const game = {
+      userId: userAId,
+      playerName: charA.name,
+      foeUserId: userBId,
+      foeName: charB.name,
+      betStones: bet,
+      isPvp: true,
+      currentTurnUserId: userAId,
+      playerHp: 3,
+      foeHp: 3,
+      bullets,
+      bulletIndex: 0,
+      sawedOff: false,
+      tacticalItems: ['kinh_soi', 'toai_dao', 'hoi_xuan'],
+      logs: [`Bàn cược Lôi Hoàn 1v1 giữa ${charA.name} và ${charB.name} bắt đầu! Mỗi bên 3 Giọt Máu. Lượt đầu: ${charA.name}.`],
+      isFinished: false,
+      winner: null
+    };
+    activeBuckshotGames.set(userAId, game);
+    activeBuckshotGames.set(userBId, game);
+    const { embed, components } = createBuckshotEmbed(game, user);
+    return interaction.update({ content: null, embeds: [embed], components }).catch(() => {});
+  }
+
+  if (customId.startsWith('tutien_buck_decline_')) {
+    const parts = customId.split('_');
+    const userAId = parts[3];
+    const userBId = parts[4];
+    if (user.id !== userBId) {
+      return interaction.reply({ content: '⚠️ Chỉ đạo hữu được thách đấu mới có quyền rút lui!', ephemeral: true });
+    }
+    return interaction.update({
+      content: `🏃 Đạo hữu <@${userBId}> đã từ chối lên bàn cược Lôi Hoàn cùng <@${userAId}>!`,
+      embeds: [],
+      components: []
+    }).catch(() => {});
+  }
+
   // --- 17. LÔI HOÀN ĐỔ MỆNH (BUCKSHOT ROULETTE - DOC 15) ---
   if (customId.startsWith('tutien_buck_')) {
     const action = customId.replace('tutien_buck_', '');
@@ -1082,14 +1301,25 @@ async function handleTuTienButtonInteraction(interaction, aiStoryGenerator = nul
       thuoc: 'use_hoi_xuan'
     };
     const actName = mapAction[action] || action;
-    const res = playBuckshotTurn(game, actName);
+    const res = playBuckshotTurn(game, actName, user.id);
     if (res.error) {
       return interaction.reply({ content: res.error, ephemeral: true });
     }
 
-    if (game.isFinished && game.winner === 'player') {
-      char.spiritStones = (char.spiritStones || 0) + (game.betStones * 2);
-      saveCharacter(user.id, char);
+    if (game.isFinished) {
+      if (game.isPvp) {
+        const winnerId = game.winner === 'player' ? game.userId : game.foeUserId;
+        const winnerChar = getCharacter(winnerId);
+        if (winnerChar) {
+          winnerChar.spiritStones = (winnerChar.spiritStones || 0) + (game.betStones * 2);
+          saveCharacter(winnerId, winnerChar);
+        }
+        activeBuckshotGames.delete(game.userId);
+        activeBuckshotGames.delete(game.foeUserId);
+      } else if (game.winner === 'player') {
+        char.spiritStones = (char.spiritStones || 0) + (game.betStones * 2);
+        saveCharacter(user.id, char);
+      }
     }
 
     const { embed, components } = createBuckshotEmbed(game, user);

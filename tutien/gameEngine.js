@@ -1343,8 +1343,17 @@ function initBuckshotGame(userId, betStones = 200) {
   };
 }
 
-function playBuckshotTurn(game, action) {
-  if (game.isFinished) return { error: 'Ván cược đã kết thúc!' };
+function playBuckshotTurn(game, action, actorUserId = null) {
+  if (game.isFinished) return { error: 'Ván cược đã kết thúc! Hãy bắt đầu ván mới.' };
+
+  if (game.isPvp && actorUserId && game.currentTurnUserId && actorUserId !== game.currentTurnUserId) {
+    return { error: `⏳ Chưa đến lượt đi của bạn! Hiện đang là lượt của <@${game.currentTurnUserId}>.` };
+  }
+
+  const isPlayerTurn = !game.isPvp || (actorUserId === game.userId);
+  const shooterName = isPlayerTurn ? (game.playerName || 'Đạo Hữu') : game.foeName;
+  const targetName = isPlayerTurn ? game.foeName : (game.playerName || 'Đạo Hữu');
+
   const currentBullet = game.bullets[game.bulletIndex];
   const dmg = game.sawedOff ? 2 : 1;
   game.sawedOff = false;
@@ -1353,7 +1362,7 @@ function playBuckshotTurn(game, action) {
     if (!game.tacticalItems.includes('kinh_soi')) return { error: 'Đã hết Kính Soi Đạn!' };
     game.tacticalItems = game.tacticalItems.filter(i => i !== 'kinh_soi');
     const isLive = currentBullet;
-    game.logs.unshift(`🔍 Soi nòng lôi hoàn: Viên đạn hiện tại là **${isLive ? '⚡ ĐẠN THẬT' : '💨 ĐẠN GIẢ'}**!`);
+    game.logs.unshift(`🔍 ${shooterName} soi nòng: Viên đạn hiện tại là **${isLive ? '⚡ ĐẠN THẬT' : '💨 ĐẠN GIẢ'}**!`);
     return { game, msg: `Viên đạn trong nòng là: ${isLive ? '⚡ ĐẠN THẬT' : '💨 ĐẠN GIẢ'}` };
   }
 
@@ -1361,48 +1370,84 @@ function playBuckshotTurn(game, action) {
     if (!game.tacticalItems.includes('toai_dao')) return { error: 'Đã hết Toái Lôi Đao!' };
     game.tacticalItems = game.tacticalItems.filter(i => i !== 'toai_dao');
     game.sawedOff = true;
-    game.logs.unshift(`🗡️ Cắt ngắn nòng lôi hoàn: Phát bắn tiếp theo sẽ gây **GẤP ĐÔI SÁT THƯƠNG (-2 MÁU)**!`);
+    game.logs.unshift(`🗡️ ${shooterName} cắt nòng: Phát bắn kế tiếp gây **X2 SÁT THƯƠNG (-2 MÁU)**!`);
     return { game, msg: 'Đã cắt ngắn nòng! Phát bắn kế tiếp sát thương x2!' };
   }
 
   if (action === 'use_hoi_xuan') {
     if (!game.tacticalItems.includes('hoi_xuan')) return { error: 'Đã hết Hồi Xuân Đan!' };
     game.tacticalItems = game.tacticalItems.filter(i => i !== 'hoi_xuan');
-    game.playerHp = Math.min(3, game.playerHp + 1);
-    game.logs.unshift(`💊 Nuốt Hồi Xuân Đan: Khí huyết sinh mệnh hồi phục **+1 Máu** (${game.playerHp}/3)!`);
+    if (isPlayerTurn) {
+      game.playerHp = Math.min(3, game.playerHp + 1);
+    } else {
+      game.foeHp = Math.min(3, game.foeHp + 1);
+    }
+    game.logs.unshift(`💊 ${shooterName} nuốt Hồi Xuân Đan: Khí huyết sinh mệnh hồi phục **+1 Máu**!`);
     return { game, msg: 'Hồi phục +1 Giọt Máu!' };
   }
 
   if (action === 'shoot_self') {
     game.bulletIndex++;
     if (currentBullet) {
-      game.playerHp -= dmg;
-      game.logs.unshift(`💥 Tự bắn vào ngực: LÔI ĐẠN NỔ TUNG! Đạo hữu mất **-${dmg} Máu**! Chuyền lượt cho Ma Tu.`);
+      if (isPlayerTurn) {
+        game.playerHp -= dmg;
+      } else {
+        game.foeHp -= dmg;
+      }
+      game.logs.unshift(`💥 ${shooterName} tự bắn vào ngực: LÔI ĐẠN NỔ TUNG! Mất **-${dmg} Máu**!`);
+
       if (game.playerHp <= 0) {
         game.isFinished = true;
         game.winner = 'foe';
-        game.logs.unshift('💀 Đạo hữu đã đoạn tuyệt sinh mệnh! Mất trắng tiền cược!');
+        game.logs.unshift(`💀 ${game.playerName || 'Đạo hữu'} đã đoạn tuyệt sinh mệnh trên bàn cược!`);
         return { game };
       }
-      foeTurn(game);
+      if (game.foeHp <= 0) {
+        game.isFinished = true;
+        game.winner = 'player';
+        game.logs.unshift(`💀 ${game.foeName} đã ngã xuống! ${game.playerName || 'Đạo hữu'} THẮNG CƯỢC!`);
+        return { game };
+      }
+
+      if (game.isPvp) {
+        game.currentTurnUserId = isPlayerTurn ? game.foeUserId : game.userId;
+      } else {
+        foeTurn(game);
+      }
     } else {
-      game.logs.unshift(`💨 Tự bắn vào ngực: CẠCH! Là Đạn Giả! Đạo hữu dũng cảm ĐƯỢC ĐI TIẾP 1 LƯỢT NỮA!`);
+      game.logs.unshift(`💨 ${shooterName} tự bắn vào ngực: CẠCH! Là Đạn Giả! ${shooterName} ĐƯỢC ĐI TIẾP 1 LƯỢT!`);
     }
   } else if (action === 'shoot_foe') {
     game.bulletIndex++;
     if (currentBullet) {
-      game.foeHp -= dmg;
-      game.logs.unshift(`⚡ Chĩa súng bắn Ma Tu: ĐẠN NỔ RỀN VANG! ${game.foeName} mất **-${dmg} Máu**!`);
+      if (isPlayerTurn) {
+        game.foeHp -= dmg;
+      } else {
+        game.playerHp -= dmg;
+      }
+      game.logs.unshift(`⚡ ${shooterName} chĩa súng bắn ${targetName}: ĐẠN NỔ RỀN VANG! ${targetName} mất **-${dmg} Máu**!`);
+
+      if (game.playerHp <= 0) {
+        game.isFinished = true;
+        game.winner = 'foe';
+        game.logs.unshift(`💀 ${game.playerName || 'Đạo hữu'} đã bị bắn hạ! ${game.foeName} ĐOẠT TOÀN BỘ TIỀN CƯỢC!`);
+        return { game };
+      }
       if (game.foeHp <= 0) {
         game.isFinished = true;
         game.winner = 'player';
-        game.logs.unshift(`👑 ${game.foeName} bị bắn nát thần hồn! Đạo hữu ĐOẠT TOÀN BỘ TIỀN CƯỢC!`);
+        game.logs.unshift(`👑 ${game.foeName} bị bắn hạ! ${shooterName} ĐOẠT TOÀN BỘ TIỀN CƯỢC!`);
         return { game };
       }
     } else {
-      game.logs.unshift(`💨 Chĩa súng bắn Ma Tu: CẠCH! Đạn Xịt! Lượt đi chuyển giao cho đối thủ.`);
+      game.logs.unshift(`💨 ${shooterName} chĩa súng bắn ${targetName}: CẠCH! Đạn Xịt! Lượt đi chuyển giao.`);
     }
-    foeTurn(game);
+
+    if (game.isPvp) {
+      game.currentTurnUserId = isPlayerTurn ? game.foeUserId : game.userId;
+    } else {
+      foeTurn(game);
+    }
   }
 
   if (game.bulletIndex >= game.bullets.length && !game.isFinished) {

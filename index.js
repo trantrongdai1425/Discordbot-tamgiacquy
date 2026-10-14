@@ -76,7 +76,10 @@ const {
   createDaoLuEmbed,
   createBuckshotEmbed,
   createNpcEmbed,
-  createTransferEmbed
+  createTransferEmbed,
+  createPvPInviteEmbed,
+  createMarryInviteEmbed,
+  createBuckshotInviteEmbed
 } = require('./tutien/tutienUI');
 const { getAllCharacters, saveCharacter } = require('./tutien/db');
 
@@ -1621,7 +1624,9 @@ client.once('ready', async () => {
     // 36. Lôi Hoàn Đổ Mệnh
     new SlashCommandBuilder()
       .setName('loihoan')
-      .setDescription('Tham gia ván cược Lôi Hoàn Đổ Mệnh (Buckshot Roulette Tiên Hiệp)'),
+      .setDescription('Tham gia ván cược Lôi Hoàn Đổ Mệnh (Solo vs Ma Tu hoặc Khiêu chiến 1v1)')
+      .addUserOption((opt) => opt.setName('target').setDescription('Đạo hữu muốn thách cược 1v1').setRequired(false))
+      .addIntegerOption((opt) => opt.setName('bet').setDescription('Số Linh Thạch đặt cược (mặc định 200)').setRequired(false)),
 
     // 37. Đại NPC & Hảo Cảm
     new SlashCommandBuilder()
@@ -1895,10 +1900,10 @@ client.on('interactionCreate', async (interaction) => {
     if (!target) return interaction.reply({ content: '⚠️ Vui lòng chọn một đạo hữu để khiêu chiến!', ephemeral: true });
     if (target.id === interaction.user.id) return interaction.reply({ content: '⚠️ Đạo hữu không thể tự luận đạo với chính mình!', ephemeral: true });
     if (target.bot) return interaction.reply({ content: '⚠️ Không thể khiêu chiến với thần thức của Bot!', ephemeral: true });
-    const result = await handlePvP(interaction.user, target);
-    if (result.error) return interaction.reply({ content: result.error, ephemeral: true });
-    const pvpEmbed = createPvPEmbed(result.charA, result.charB, interaction.user, target, result.combatResult);
-    return interaction.reply({ embeds: [pvpEmbed] });
+    const charA = getOrInitCharacter(interaction.user);
+    const charB = getOrInitCharacter(target);
+    const { embed, components } = createPvPInviteEmbed(charA, charB, interaction.user, target);
+    return interaction.reply({ embeds: [embed], components });
   }
 
   // Lệnh /luyendan
@@ -1972,11 +1977,13 @@ client.on('interactionCreate', async (interaction) => {
       if (target.id === interaction.user.id) return interaction.reply({ content: '⚠️ Đạo hữu không thể tự kết duyên với chính mình!', ephemeral: true });
       if (target.bot) return interaction.reply({ content: '⚠️ Không thể kết duyên cùng thần thức của Bot!', ephemeral: true });
       const targetChar = getOrInitCharacter(target);
-      const res = marryPartner(char, targetChar);
-      if (res.error) return interaction.reply({ content: res.error, ephemeral: true });
-      saveCharacter(interaction.user.id, char);
-      saveCharacter(target.id, targetChar);
-      const { embed, components } = createDaoLuEmbed(char, interaction.user, `🎉 Hỷ khí trùng thiên! Chúc mừng hai vị **${char.name}** và **${targetChar.name}** vĩnh kết đồng tâm, se duyên Đạo Lữ!`);
+      if (char.partnerName || targetChar.partnerName) {
+        return interaction.reply({ content: '⚠️ Một trong hai vị đạo hữu đã có Đạo Lữ bản mệnh rồi!', ephemeral: true });
+      }
+      if ((char.spiritStones || 0) < 5000) {
+        return interaction.reply({ content: '⚠️ Cần 5.000 Linh Thạch để mua Định Tình Ngọc Bội tổ chức hôn lễ Tiên Giới!', ephemeral: true });
+      }
+      const { embed, components } = createMarryInviteEmbed(char, targetChar, interaction.user, target);
       return interaction.reply({ embeds: [embed], components });
     }
     const { embed, components } = createDaoLuEmbed(char, interaction.user);
@@ -1986,6 +1993,24 @@ client.on('interactionCreate', async (interaction) => {
   // Lệnh /loihoan
   if (interaction.commandName === 'loihoan') {
     const char = getOrInitCharacter(interaction.user);
+    const target = interaction.options.getUser('target');
+    const betInput = interaction.options.getInteger('bet') || 200;
+    const bet = Math.max(50, Math.min(50000, betInput));
+
+    if (target) {
+      if (target.id === interaction.user.id) return interaction.reply({ content: '⚠️ Không thể tự thách cược với chính mình!', ephemeral: true });
+      if (target.bot) return interaction.reply({ content: '⚠️ Không thể thách cược cùng thần thức của Bot!', ephemeral: true });
+      const targetChar = getOrInitCharacter(target);
+      if ((char.spiritStones || 0) < bet) {
+        return interaction.reply({ content: `⚠️ Đạo hữu không đủ ${bet.toLocaleString('vi-VN')} Linh Thạch để đặt cược!`, ephemeral: true });
+      }
+      if ((targetChar.spiritStones || 0) < bet) {
+        return interaction.reply({ content: `⚠️ Đối phương không đủ ${bet.toLocaleString('vi-VN')} Linh Thạch để tham gia cược!`, ephemeral: true });
+      }
+      const { embed, components } = createBuckshotInviteEmbed(char, targetChar, interaction.user, target, bet);
+      return interaction.reply({ embeds: [embed], components });
+    }
+
     if ((char.spiritStones || 0) < 200) {
       return interaction.reply({ content: '⚠️ Cần ít nhất 200 Linh Thạch để đặt cược Lôi Hoàn!', ephemeral: true });
     }
@@ -2862,10 +2887,10 @@ client.on('messageCreate', async (message) => {
       if (!target) return message.reply('⚠️ Vui lòng tag một đạo hữu để khiêu chiến (Ví dụ: `!pvp @ten_ban`)!');
       if (target.id === message.author.id) return message.reply('⚠️ Đạo hữu không thể tự luận đạo với chính mình!');
       if (target.bot) return message.reply('⚠️ Không thể khiêu chiến với thần thức của Bot!');
-      const result = await handlePvP(message.author, target);
-      if (result.error) return message.reply(result.error);
-      const pvpEmbed = createPvPEmbed(result.charA, result.charB, message.author, target, result.combatResult);
-      return message.reply({ embeds: [pvpEmbed] });
+      const charA = getOrInitCharacter(message.author);
+      const charB = getOrInitCharacter(target);
+      const { embed, components } = createPvPInviteEmbed(charA, charB, message.author, target);
+      return message.reply({ embeds: [embed], components });
     }
 
     if (rawContent === '!luyendan' || rawContent === 'luyendan') {
@@ -2929,19 +2954,45 @@ client.on('messageCreate', async (message) => {
         if (target.id === message.author.id) return message.reply('⚠️ Đạo hữu không thể tự kết duyên với chính mình!');
         if (target.bot) return message.reply('⚠️ Không thể kết duyên cùng Bot!');
         const targetChar = getOrInitCharacter(target);
-        const res = marryPartner(char, targetChar);
-        if (res.error) return message.reply(res.error);
-        saveCharacter(message.author.id, char);
-        saveCharacter(target.id, targetChar);
-        const { embed, components } = createDaoLuEmbed(char, message.author, `🎉 Hỷ khí trùng thiên! Chúc mừng hai vị **${char.name}** và **${targetChar.name}** vĩnh kết đồng tâm, se duyên Đạo Lữ!`);
+        if (char.partnerName || targetChar.partnerName) {
+          return message.reply('⚠️ Một trong hai vị đạo hữu đã có Đạo Lữ bản mệnh rồi!');
+        }
+        if ((char.spiritStones || 0) < 5000) {
+          return message.reply('⚠️ Cần 5.000 Linh Thạch để mua Định Tình Ngọc Bội tổ chức hôn lễ Tiên Giới!');
+        }
+        const { embed, components } = createMarryInviteEmbed(char, targetChar, message.author, target);
         return message.reply({ embeds: [embed], components });
       }
       const { embed, components } = createDaoLuEmbed(char, message.author);
       return message.reply({ embeds: [embed], components });
     }
 
-    if (rawContent === '!loihoan' || rawContent === 'loihoan') {
+    if (rawContent.startsWith('!loihoan') || rawContent === 'loihoan') {
       const char = getOrInitCharacter(message.author);
+      const target = message.mentions.users.first();
+      if (target) {
+        if (target.id === message.author.id) return message.reply('⚠️ Không thể tự thách cược với chính mình!');
+        if (target.bot) return message.reply('⚠️ Không thể thách cược cùng Bot!');
+        const targetChar = getOrInitCharacter(target);
+        const args = (message.content || '').trim().split(/\s+/);
+        let bet = 200;
+        for (const arg of args) {
+          const num = parseInt(arg, 10);
+          if (!isNaN(num) && num > 0) {
+            bet = Math.max(50, Math.min(50000, num));
+            break;
+          }
+        }
+        if ((char.spiritStones || 0) < bet) {
+          return message.reply(`⚠️ Đạo hữu không đủ ${bet.toLocaleString('vi-VN')} Linh Thạch để đặt cược!`);
+        }
+        if ((targetChar.spiritStones || 0) < bet) {
+          return message.reply(`⚠️ Đối phương không đủ ${bet.toLocaleString('vi-VN')} Linh Thạch để tham gia cược!`);
+        }
+        const { embed, components } = createBuckshotInviteEmbed(char, targetChar, message.author, target, bet);
+        return message.reply({ embeds: [embed], components });
+      }
+
       if ((char.spiritStones || 0) < 200) {
         return message.reply('⚠️ Cần ít nhất 200 Linh Thạch để đặt cược Lôi Hoàn!');
       }

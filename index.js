@@ -65,7 +65,10 @@ const {
   createFarmEmbed,
   createInventoryEmbed,
   createLeaderboardEmbed,
-  createPvPEmbed
+  createPvPEmbed,
+  createTreasureEmbed,
+  createBountyEmbed,
+  createGamblingEmbed
 } = require('./tutien/tutienUI');
 const { getAllCharacters } = require('./tutien/db');
 
@@ -1575,6 +1578,21 @@ client.once('ready', async () => {
     new SlashCommandBuilder()
       .setName('bxh-tutien')
       .setDescription('Xem Bảng Xếp Hạng cao thủ Tu Chân Giới toàn server'),
+
+    // 30. Thần Thức Tầm Bảo
+    new SlashCommandBuilder()
+      .setName('tambao')
+      .setDescription('Tỏa Thần Thức Tầm Bảo & Kỳ Ngộ Bát Hoang (Tu Chân Giới)'),
+
+    // 31. Tông Môn Bổng Lộc & Huyền Thưởng
+    new SlashCommandBuilder()
+      .setName('nhiemvu')
+      .setDescription('Điểm danh nhận bổng lộc hàng ngày và nhận thưởng nhiệm vụ tông môn'),
+
+    // 32. Đổ Thạch Phường Thị
+    new SlashCommandBuilder()
+      .setName('dothach')
+      .setDescription('Đổ thạch phường thị kiếm ngọc cực phẩm và bí kíp thượng cổ'),
   ];
 
   try {
@@ -1865,6 +1883,27 @@ client.on('interactionCreate', async (interaction) => {
   if (interaction.commandName === 'bxh-tutien') {
     const all = getAllCharacters();
     const { embed, components } = createLeaderboardEmbed(all);
+    return interaction.reply({ embeds: [embed], components });
+  }
+
+  // Lệnh /tambao
+  if (interaction.commandName === 'tambao') {
+    const char = getOrInitCharacter(interaction.user);
+    const { embed, components } = createTreasureEmbed(char, interaction.user);
+    return interaction.reply({ embeds: [embed], components });
+  }
+
+  // Lệnh /nhiemvu
+  if (interaction.commandName === 'nhiemvu') {
+    const char = getOrInitCharacter(interaction.user);
+    const { embed, components } = createBountyEmbed(char, interaction.user);
+    return interaction.reply({ embeds: [embed], components });
+  }
+
+  // Lệnh /dothach
+  if (interaction.commandName === 'dothach') {
+    const char = getOrInitCharacter(interaction.user);
+    const { embed, components } = createGamblingEmbed(char, interaction.user);
     return interaction.reply({ embeds: [embed], components });
   }
 
@@ -2729,6 +2768,24 @@ client.on('messageCreate', async (message) => {
     if (rawContent === '!bxh' || rawContent === '!bxh-tutien') {
       const all = getAllCharacters();
       const { embed, components } = createLeaderboardEmbed(all);
+      return message.reply({ embeds: [embed], components });
+    }
+
+    if (rawContent === '!tambao' || rawContent === 'tambao') {
+      const char = getOrInitCharacter(message.author);
+      const { embed, components } = createTreasureEmbed(char, message.author);
+      return message.reply({ embeds: [embed], components });
+    }
+
+    if (rawContent === '!nhiemvu' || rawContent === '!bongloc' || rawContent === 'nhiemvu' || rawContent === 'bongloc') {
+      const char = getOrInitCharacter(message.author);
+      const { embed, components } = createBountyEmbed(char, message.author);
+      return message.reply({ embeds: [embed], components });
+    }
+
+    if (rawContent === '!dothach' || rawContent === 'dothach') {
+      const char = getOrInitCharacter(message.author);
+      const { embed, components } = createGamblingEmbed(char, message.author);
       return message.reply({ embeds: [embed], components });
     }
 

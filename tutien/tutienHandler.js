@@ -41,7 +41,10 @@ const {
   createMailboxEmbed,
   createInventoryEmbed,
   createLeaderboardEmbed,
-  createPvPEmbed
+  createPvPEmbed,
+  createTreasureEmbed,
+  createBountyEmbed,
+  createGamblingEmbed
 } = require('./tutienUI');
 
 // Bộ đệm chống spam nút bấm theo User ID (cooldown 1.5 giây)
@@ -269,7 +272,141 @@ async function handlePvP(userA, userB) {
   return { charA, charB, combatResult };
 }
 
-// 6. ĐIỀU PHỐI MENU THẢ XUỐNG (SELECT MENU ROUTER)
+// 6. XỬ LÝ THẦN THỨC TẦM BẢO & KỲ NGỘ (DOC 14)
+async function handleTreasureHunt(user) {
+  const char = getOrInitCharacter(user);
+  if ((char.stamina || 0) < 10) {
+    return { error: '⚠️ **Thể Lực cạn kiệt!** Cần ít nhất **10 điểm Thể Lực** để tỏa thần thức tầm bảo!' };
+  }
+  char.stamina -= 10;
+  const rand = Math.random();
+  let result = {};
+
+  if (rand < 0.35) {
+    const stones = Math.floor(300 + Math.random() * 1200);
+    char.spiritStones = (char.spiritStones || 0) + stones;
+    result = {
+      desc: 'Thần thức phát hiện một mạch khoáng thạch cổ xưa ẩn sâu dưới lòng đất, đào được lượng lớn Linh Thạch!',
+      stones
+    };
+  } else if (rand < 0.65) {
+    const herbType = Math.random() < 0.5 ? 'thao_duoc_linh_chi' : 'thao_duoc_hoang_tinh';
+    const count = Math.floor(5 + Math.random() * 10);
+    if (!char.inventory) char.inventory = {};
+    char.inventory[herbType] = (char.inventory[herbType] || 0) + count;
+    result = {
+      desc: 'Tại một hẻm núi sương mù dày đặc, đạo hữu phát hiện dược thảo ngàn năm hấp thu linh khí nhật nguyệt!',
+      item: `${herbType.replace(/_/g, ' ').toUpperCase()} x${count}`
+    };
+  } else if (rand < 0.85) {
+    const stats = getCalculatedStats(char);
+    const exp = Math.floor(1500 + Math.random() * 3500);
+    char.exp = Math.min(stats.maxExp, (char.exp || 0) + exp);
+    result = {
+      desc: 'May mắn bước vào động phủ tiền nhân, được tàn hồn một vị Hóa Thần chân quân điểm hóa đan điền, đốn ngộ đại đạo!',
+      exp
+    };
+  } else {
+    const dmg = Math.floor((char.currentHp || 500) * 0.3) + 50;
+    char.currentHp = Math.max(20, (char.currentHp || 500) - dmg);
+    result = {
+      desc: 'Thần thức chạm trán ma chướng, bị một đạo tà khí đánh lén chấn động lục phủ ngũ tạng, tổn thương chân khí!',
+      damage: dmg
+    };
+  }
+
+  saveCharacter(user.id, char);
+  return { char, result };
+}
+
+// 7. XỬ LÝ ĐIỂM DANH BỔNG LỘC TÔNG MÔN (DOC 12)
+async function handleDailyStipend(user) {
+  const char = getOrInitCharacter(user);
+  const now = Date.now();
+  const lastStipend = char.lastStipendClaimedAt || 0;
+  if ((now - lastStipend) < 24 * 3600 * 1000) {
+    const remainH = Math.ceil((24 * 3600 * 1000 - (now - lastStipend)) / (3600 * 1000));
+    return { error: `⏳ Đạo hữu đã nhận bổng lộc hôm nay rồi! Vui lòng quay lại sau **${remainH} giờ** nữa.` };
+  }
+
+  char.lastStipendClaimedAt = now;
+  char.spiritStones = (char.spiritStones || 0) + 500;
+  if (!char.inventory) char.inventory = {};
+  char.inventory['dan_the_luc'] = (char.inventory['dan_the_luc'] || 0) + 2;
+  char.inventory['dan_hoi_mau'] = (char.inventory['dan_hoi_mau'] || 0) + 2;
+  saveCharacter(user.id, char);
+
+  return { char, msg: 'Điểm danh bổng lộc thành công! Nhận được: **500 Linh Thạch**, **2x Đan Thể Lực**, **2x Đan Hồi Máu**!' };
+}
+
+// 8. XỬ LÝ NHẬN THƯỞNG NHIỆM VỤ HUYỀN THƯỞNG (DOC 26)
+async function handleDailyBounty(user) {
+  const char = getOrInitCharacter(user);
+  const bounties = char.dailyBounties || [];
+  let totalExp = 0;
+  let totalStones = 0;
+  let count = 0;
+
+  bounties.forEach(b => {
+    if (!b.isClaimed) {
+      b.isClaimed = true;
+      totalExp += (b.rewardExp || 0);
+      totalStones += (b.rewardStones || 0);
+      count++;
+    }
+  });
+
+  if (count === 0) {
+    return { error: '⚠️ Toàn bộ nhiệm vụ hôm nay đã được nhận thưởng hết!' };
+  }
+
+  const stats = getCalculatedStats(char);
+  char.exp = Math.min(stats.maxExp, (char.exp || 0) + totalExp);
+  char.spiritStones = (char.spiritStones || 0) + totalStones;
+  saveCharacter(user.id, char);
+
+  return { char, msg: `Nhận thưởng thành công **${count} nhiệm vụ**: **+${totalExp} Tu Vi**, **+${totalStones} Linh Thạch**!` };
+}
+
+// 9. XỬ LÝ ĐỔ THẠCH PHƯỜNG THỊ (DOC 15)
+async function handleGambling(user, cost = 200) {
+  const char = getOrInitCharacter(user);
+  if ((char.spiritStones || 0) < cost) {
+    return { error: `⚠️ Không đủ Linh Thạch! Cần **${cost.toLocaleString('vi-VN')} Linh Thạch** để đổ thạch.` };
+  }
+
+  char.spiritStones -= cost;
+  const rand = Math.random();
+  let payout = 0;
+  let desc = '';
+
+  if (rand < 0.50) {
+    payout = 0;
+    desc = 'Một đao cắt xuống, bên trong chỉ toàn đá vôi rỗng tuếch, không có lấy một tia linh khí!';
+  } else if (rand < 0.75) {
+    payout = cost;
+    desc = 'Cắt ra một viên Phỉ Thúy Thường, vừa vặn hòa vốn!';
+  } else if (rand < 0.90) {
+    payout = Math.floor(cost * 2.5);
+    desc = 'Linh quang chớp động! Cắt ra Băng Chủng Phỉ Thúy trong suốt không tì vết!';
+  } else if (rand < 0.98) {
+    payout = Math.floor(cost * 6);
+    desc = 'Tử khí đông lai! Xuất hiện Đế Vương Lục Cực Phẩm, thương hội tranh nhau mua giá cao ngất ngưởng!';
+  } else {
+    payout = Math.floor(cost * 15);
+    desc = '🌟 THIÊN ĐỊA DỊ TƯỢNG! Khối đá nứt toác phát lộ Thái Cổ Thần Ngọc rực rỡ, kèm 1 cuốn Bí Tịch Thượng Cổ!';
+    if (!char.inventory) char.inventory = {};
+    char.inventory['cong_phap_thien_loi'] = (char.inventory['cong_phap_thien_loi'] || 0) + 1;
+  }
+
+  char.spiritStones += payout;
+  const profit = payout - cost;
+  saveCharacter(user.id, char);
+
+  return { char, cutResult: { cost, payout, profit, desc } };
+}
+
+// 10. ĐIỀU PHỐI MENU THẢ XUỐNG (SELECT MENU ROUTER)
 async function handleTuTienSelectMenu(interaction) {
   const value = interaction.values[0];
   const user = interaction.user;
@@ -342,6 +479,21 @@ async function handleTuTienSelectMenu(interaction) {
   if (value === 'feature_leaderboard') {
     const all = getAllCharacters();
     const { embed, components } = createLeaderboardEmbed(all);
+    return interaction.update({ embeds: [embed], components }).catch(() => {});
+  }
+
+  if (value === 'feature_treasure') {
+    const { embed, components } = createTreasureEmbed(char, user);
+    return interaction.update({ embeds: [embed], components }).catch(() => {});
+  }
+
+  if (value === 'feature_bounty') {
+    const { embed, components } = createBountyEmbed(char, user);
+    return interaction.update({ embeds: [embed], components }).catch(() => {});
+  }
+
+  if (value === 'feature_gambling') {
+    const { embed, components } = createGamblingEmbed(char, user);
     return interaction.update({ embeds: [embed], components }).catch(() => {});
   }
 }
@@ -724,6 +876,62 @@ async function handleTuTienButtonInteraction(interaction, aiStoryGenerator = nul
     const { embed, components } = createLeaderboardEmbed(characters);
     return interaction.update({ embeds: [embed], components }).catch(() => {});
   }
+
+  // --- 11. BÁT HOANG TẦM BẢO & KỲ NGỘ (DOC 14) ---
+  if (customId === 'tutien_treasure_hunt') {
+    const res = await handleTreasureHunt(user);
+    if (res.error) {
+      return interaction.reply({ content: res.error, ephemeral: true });
+    }
+    const { embed, components } = createTreasureEmbed(res.char, user, res.result);
+    return interaction.update({ embeds: [embed], components }).catch(() => {});
+  }
+
+  // --- 12. TÔNG MÔN BỔNG LỘC & HUYỀN THƯỞNG (DOC 12, 26) ---
+  if (customId === 'tutien_stipend_claim') {
+    const res = await handleDailyStipend(user);
+    if (res.error) {
+      return interaction.reply({ content: res.error, ephemeral: true });
+    }
+    const { embed, components } = createBountyEmbed(res.char, user, res.msg);
+    return interaction.update({ embeds: [embed], components }).catch(() => {});
+  }
+
+  if (customId === 'tutien_bounty_claim') {
+    const res = await handleDailyBounty(user);
+    if (res.error) {
+      return interaction.reply({ content: res.error, ephemeral: true });
+    }
+    const { embed, components } = createBountyEmbed(res.char, user, res.msg);
+    return interaction.update({ embeds: [embed], components }).catch(() => {});
+  }
+
+  if (customId === 'tutien_heal_hp') {
+    const stats = getCalculatedStats(char);
+    char.currentHp = stats.hp;
+    saveCharacter(user.id, char);
+    const { embed, components } = createBountyEmbed(char, user, '💖 Đã vận chuyển chu thiên khí huyết, hồi phục toàn bộ Khí Huyết (100% HP)!');
+    return interaction.update({ embeds: [embed], components }).catch(() => {});
+  }
+
+  // --- 13. ĐỔ THẠCH PHƯỜNG THỊ (DOC 15) ---
+  if (customId === 'tutien_gamble_small') {
+    const res = await handleGambling(user, 200);
+    if (res.error) {
+      return interaction.reply({ content: res.error, ephemeral: true });
+    }
+    const { embed, components } = createGamblingEmbed(res.char, user, res.cutResult);
+    return interaction.update({ embeds: [embed], components }).catch(() => {});
+  }
+
+  if (customId === 'tutien_gamble_large') {
+    const res = await handleGambling(user, 1000);
+    if (res.error) {
+      return interaction.reply({ content: res.error, ephemeral: true });
+    }
+    const { embed, components } = createGamblingEmbed(res.char, user, res.cutResult);
+    return interaction.update({ embeds: [embed], components }).catch(() => {});
+  }
 }
 
 module.exports = {
@@ -733,6 +941,10 @@ module.exports = {
   handleHunt,
   handleWorldBoss,
   handlePvP,
+  handleTreasureHunt,
+  handleDailyStipend,
+  handleDailyBounty,
+  handleGambling,
   handleTuTienSelectMenu,
   handleTuTienButtonInteraction
 };

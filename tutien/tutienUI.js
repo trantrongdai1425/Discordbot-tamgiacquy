@@ -115,7 +115,25 @@ function createFeatureSelectMenu(activeFeature = 'profile') {
         .setDescription('Vinh danh đệ nhất cao thủ cảnh giới toàn server')
         .setValue('feature_leaderboard')
         .setEmoji('🏆')
-        .setDefault(activeFeature === 'leaderboard')
+        .setDefault(activeFeature === 'leaderboard'),
+      new StringSelectMenuOptionBuilder()
+        .setLabel('Thần Thức Tầm Bảo & Kỳ Ngộ')
+        .setDescription('Tỏa thần thức quét bát hoang, tìm kiếm cơ duyên và bảo vật')
+        .setValue('feature_treasure')
+        .setEmoji('🔮')
+        .setDefault(activeFeature === 'treasure'),
+      new StringSelectMenuOptionBuilder()
+        .setLabel('Huyền Thưởng & Bổng Lộc Tông Môn')
+        .setDescription('Điểm danh nhận bổng lộc hàng ngày và nhận thưởng nhiệm vụ')
+        .setValue('feature_bounty')
+        .setEmoji('📜')
+        .setDefault(activeFeature === 'bounty'),
+      new StringSelectMenuOptionBuilder()
+        .setLabel('Đổ Thạch Phường Thị (Thần Bí)')
+        .setDescription('Chi linh thạch cắt nguyên thạch cổ kiếm phỉ thúy cực phẩm')
+        .setValue('feature_gambling')
+        .setEmoji('💎')
+        .setDefault(activeFeature === 'gambling')
     ]);
 
   return new ActionRowBuilder().addComponents(menu);
@@ -872,6 +890,171 @@ function createPvPEmbed(charA, charB, userA, userB, combatResult) {
   return embed;
 }
 
+// 17. EMBED THẦN THỨC TẦM BẢO & KỲ NGỘ (DOC 14)
+function createTreasureEmbed(char, user, encounterResult = null) {
+  const stamina = char.stamina || 100;
+  const stones = char.spiritStones || 0;
+
+  let encounterText = '';
+  if (encounterResult) {
+    encounterText =
+      `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `✨ **KẾT QUẢ KỲ NGỘ THẦN THỨC:**\n` +
+      `> *${encounterResult.desc}*\n\n` +
+      `🎁 **Thu Hoạch Được:**\n` +
+      (encounterResult.exp ? `• 🔮 **Tu Vi:** \`+${encounterResult.exp.toLocaleString('vi-VN')} Exp\`\n` : '') +
+      (encounterResult.stones ? `• 💰 **Linh Thạch:** \`+${encounterResult.stones.toLocaleString('vi-VN')} viên\`\n` : '') +
+      (encounterResult.item ? `• 📦 **Bảo Vật:** \`${encounterResult.item}\`\n` : '') +
+      (encounterResult.damage ? `• 🩸 **Thương Tích:** \`-${encounterResult.damage} HP\`\n` : '');
+  }
+
+  const embed = new EmbedBuilder()
+    .setTitle(`🔮 BÁT HOANG TẦM BẢO • THẦN THỨC KỲ NGỘ`)
+    .setDescription(
+      `Đạo Hiệu: **${char.name}**\n` +
+      `*Phóng xuất thần thức quét ngang vạn dặm hồng hoang, tìm kiếm kỳ ngộ và chí bảo thượng cổ!*\n\n` +
+      `💪 **Thể Lực Hiện Có:** \`${stamina} / ${char.maxStamina || 100}\` (Mỗi lần quét tiêu hao **10 Thể Lực**)\n` +
+      `💰 **Linh Thạch Hiện Có:** \`${stones.toLocaleString('vi-VN')}\` viên\n\n` +
+      `🗺️ **CƠ DUYÊN CÓ THỂ BẮT GẶP:**\n` +
+      `• 💎 Đào được Khoáng Thạch Cổ (Nhận 300 - 1.500 Linh Thạch)\n` +
+      `• 🌿 Phát hiện Thảo Dược Ngàn Năm (Nhận 5x - 15x Thảo Dược)\n` +
+      `• 📜 Gặp Tàn Hồn Lão Tổ truyền thụ (Nhận 2.000 - 5.000 Tu Vi đốn ngộ!)\n` +
+      `• 🔮 Nhặt được Yêu Đan Tinh Anh hoặc Bí Tịch Công Pháp\n` +
+      `• 💀 Bị Ma Tu hoặc Hung Thú đánh lén (Tổn hao Khí Huyết)${encounterText}`
+    )
+    .setColor(0x8E44AD)
+    .setFooter({ text: 'Thần thức càng mạnh, cơ duyên bắt gặp bảo vật hiếm càng cao!' })
+    .setTimestamp();
+
+  const selectRow = createFeatureSelectMenu('treasure');
+
+  const rowButtons = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('tutien_treasure_hunt')
+      .setLabel('🔮 Tỏa Ra Thần Thức Quét Bát Hoang (10 TL)')
+      .setStyle(ButtonStyle.Primary)
+      .setDisabled(stamina < 10),
+    new ButtonBuilder()
+      .setCustomId('tutien_refresh')
+      .setLabel('🔄 Làm Mới')
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  return { embed, components: [selectRow, rowButtons] };
+}
+
+// 18. EMBED HUYỀN THƯỞNG & BỔNG LỘC TÔNG MÔN (DOC 12 & DOC 26)
+function createBountyEmbed(char, user, actionMsg = null) {
+  const now = Date.now();
+  const lastStipend = char.lastStipendClaimedAt || 0;
+  const canClaimStipend = (now - lastStipend) >= 24 * 3600 * 1000;
+  const remainHours = Math.max(0, Math.ceil((24 * 3600 * 1000 - (now - lastStipend)) / (3600 * 1000)));
+
+  const bounties = char.dailyBounties || [
+    { id: 'bounty_1', title: '⚔️ Trảm Yêu Trừ Ma', rewardExp: 1000, rewardStones: 300, isClaimed: false },
+    { id: 'bounty_2', title: '🌿 Thái Dược Dưỡng Sinh', rewardExp: 800, rewardStones: 200, isClaimed: false }
+  ];
+
+  let bountyText = bounties.map((b, idx) => {
+    const status = b.isClaimed ? '✅ Đã nhận' : '🎁 **Chưa nhận**';
+    return `**${idx + 1}. ${b.title}** (${status})\n> Thưởng: \`+${b.rewardExp} Tu Vi\` | \`+${b.rewardStones} Linh Thạch\``;
+  }).join('\n\n');
+
+  let notice = actionMsg ? `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n✨ **${actionMsg}**\n` : '';
+
+  const embed = new EmbedBuilder()
+    .setTitle(`📜 TÔNG MÔN BỔNG LỘC & HUYỀN THƯỞNG BẢNG`)
+    .setDescription(
+      `Đạo Hiệu: **${char.name}** • Xuất Thân: **${char.sectOrigin === 'TAN_TU' ? 'Tán Tu Tự Do' : char.sectOrigin}**\n` +
+      `Cấp Bậc Đệ Tử: **${char.sectRank === 'TAP_DICH' ? 'Tạp Dịch Đệ Tử' : char.sectRank}**\n\n` +
+      `🎁 **ĐIỂM DANH BỔNG LỘC TÔNG MÔN (HÀNG NGÀY):**\n` +
+      (canClaimStipend
+        ? `✨ **Bổng lộc hôm nay đã sẵn sàng!** (Nhận: 500 Linh Thạch + 2 Đan Thể Lực + 2 Đan Hồi Máu)`
+        : `⏳ Đã nhận bổng lộc hôm nay! Vui lòng quay lại sau **${remainHours} giờ** nữa.`) +
+      `\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `📋 **NHIỆM VỤ HUYỀN THƯỞNG HÀNG NGÀY:**\n${bountyText}${notice}`
+    )
+    .setColor(0xE67E22)
+    .setFooter({ text: 'Chăm chỉ hoàn thành huyền thưởng để tích lũy đan dược và linh thạch!' })
+    .setTimestamp();
+
+  const selectRow = createFeatureSelectMenu('bounty');
+
+  const rowButtons = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('tutien_stipend_claim')
+      .setLabel(canClaimStipend ? '🎁 Điểm Danh Bổng Lộc (500 Viên)' : '⏳ Bổng Lộc Đã Nhận')
+      .setStyle(canClaimStipend ? ButtonStyle.Success : ButtonStyle.Secondary)
+      .setDisabled(!canClaimStipend),
+    new ButtonBuilder()
+      .setCustomId('tutien_bounty_claim')
+      .setLabel('📜 Nhận Thưởng Nhiệm Vụ')
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId('tutien_heal_hp')
+      .setLabel('💖 Vận Công Hồi Máu 100%')
+      .setStyle(ButtonStyle.Success)
+  );
+
+  return { embed, components: [selectRow, rowButtons] };
+}
+
+// 19. EMBED ĐỔ THẠCH PHƯỜNG THỊ (DOC 15)
+function createGamblingEmbed(char, user, cutResult = null) {
+  const stones = char.spiritStones || 0;
+
+  let cutText = '';
+  if (cutResult) {
+    cutText =
+      `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `💎 **KẾT QUẢ CẮT NGUYÊN THẠCH:**\n` +
+      `> *${cutResult.desc}*\n\n` +
+      (cutResult.profit > 0
+        ? `🎉 **ĐẠI CÁT ĐẠI LỢI!** Thu về: \`+${cutResult.payout.toLocaleString('vi-VN')} Linh Thạch\` (Lời +${cutResult.profit} viên)!`
+        : cutResult.profit === 0
+        ? `⚖️ **HÒA VỐN!** Thu về trọn vẹn: \`${cutResult.payout.toLocaleString('vi-VN')} Linh Thạch\`!`
+        : `💀 **ĐẬP ĐÁ THẤT BẠI!** Toàn bộ bên trong là đá vôi xốp, mất trắng \`${cutResult.cost} Linh Thạch\`!`);
+  }
+
+  const embed = new EmbedBuilder()
+    .setTitle(`💎 VẠN BẢO PHƯỜNG THỊ • ĐỔ THẠCH THẦN BÍ`)
+    .setDescription(
+      `Đạo Hiệu: **${char.name}**\n` +
+      `*Một đao nghèo, một đao giàu, một đao mặc áo cẩm bào!*\n\n` +
+      `💰 **Linh Thạch Hiện Có:** \`${stones.toLocaleString('vi-VN')}\` viên\n\n` +
+      `📜 **XÁC SUẤT VÀ TỶ LỆ TRÚNG NGỌC:**\n` +
+      `• 🪨 **50%:** Đá vôi vụn (Mất trắng)\n` +
+      `• 🟢 **25%:** Phỉ Thúy Thường (Hòa vốn x1)\n` +
+      `• ❄️ **15%:** Băng Chủng Phỉ Thúy (**Lãi x2.5**)\n` +
+      `• 👑 **8%:** Đế Vương Lục Cực Phẩm (**Lãi x6**)\n` +
+      `• 🌟 **2%:** Thái Cổ Thần Ngọc (**Lãi x15 + 1 Bí Tịch Thượng Cổ!**)${cutText}`
+    )
+    .setColor(0x16A085)
+    .setFooter({ text: 'Đổ thạch dựa vào vận khí trời ban, xin chớ quá đắm chìm!' })
+    .setTimestamp();
+
+  const selectRow = createFeatureSelectMenu('gambling');
+
+  const rowButtons = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('tutien_gamble_small')
+      .setLabel('💎 Cắt Thạch Nhỏ (200 Linh Thạch)')
+      .setStyle(ButtonStyle.Primary)
+      .setDisabled(stones < 200),
+    new ButtonBuilder()
+      .setCustomId('tutien_gamble_large')
+      .setLabel('👑 Đại Đổ Thạch (1.000 Linh Thạch)')
+      .setStyle(ButtonStyle.Danger)
+      .setDisabled(stones < 1000),
+    new ButtonBuilder()
+      .setCustomId('tutien_refresh')
+      .setLabel('🔄 Làm Mới')
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  return { embed, components: [selectRow, rowButtons] };
+}
+
 module.exports = {
   RACE_COLORS,
   renderProgressBar,
@@ -891,5 +1074,9 @@ module.exports = {
   createMailboxEmbed,
   createInventoryEmbed,
   createLeaderboardEmbed,
-  createPvPEmbed
+  createPvPEmbed,
+  createTreasureEmbed,
+  createBountyEmbed,
+  createGamblingEmbed
 };
+

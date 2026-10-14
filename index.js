@@ -54,12 +54,20 @@ const path = require('path');
 // ==========================================
 const {
   getOrInitCharacter,
-  handleTuTienButtonInteraction
+  handleTuTienButtonInteraction,
+  handleTuTienSelectMenu,
+  handlePvP
 } = require('./tutien/tutienHandler');
 const {
   createCharacterEmbed,
-  createMainActionRows
+  createMainActionRows,
+  createAlchemyEmbed,
+  createFarmEmbed,
+  createInventoryEmbed,
+  createLeaderboardEmbed,
+  createPvPEmbed
 } = require('./tutien/tutienUI');
+const { getAllCharacters } = require('./tutien/db');
 
 let loginStatus = 'Khởi tạo...';
 let loginError = null;
@@ -1539,6 +1547,34 @@ client.once('ready', async () => {
     new SlashCommandBuilder()
       .setName('tutien')
       .setDescription('Mở Bảng Điều Khiển Bản Mệnh Tu Sĩ & Bế Quan Tu Luyện (Tu Chân Giới)'),
+
+    // 25. Luận Đạo Lôi Đài (PvP 1v1)
+    new SlashCommandBuilder()
+      .setName('pvp')
+      .setDescription('Khiêu chiến Luận Đạo Lôi Đài 1v1 với một đạo hữu khác trong server')
+      .addUserOption((opt) =>
+        opt.setName('target').setDescription('Đạo hữu bạn muốn khiêu chiến').setRequired(true)
+      ),
+
+    // 26. Luyện Đan Phòng
+    new SlashCommandBuilder()
+      .setName('luyendan')
+      .setDescription('Mở Luyện Đan Phòng chế tạo đan dược từ thảo dược và yêu đan'),
+
+    // 27. Dược Điền Động Phủ
+    new SlashCommandBuilder()
+      .setName('duocdien')
+      .setDescription('Mở Dược Điền Động Phủ chăm sóc và thu hoạch linh thảo'),
+
+    // 28. Càn Khôn Bảo Túi
+    new SlashCommandBuilder()
+      .setName('tuido')
+      .setDescription('Mở Càn Khôn Bảo Túi quản lý vật phẩm và cắn đan dược'),
+
+    // 29. Thiên Kiêu Bảng
+    new SlashCommandBuilder()
+      .setName('bxh-tutien')
+      .setDescription('Xem Bảng Xếp Hạng cao thủ Tu Chân Giới toàn server'),
   ];
 
   try {
@@ -1561,6 +1597,13 @@ client.once('ready', async () => {
 // ==========================================
 client.on('interactionCreate', async (interaction) => {
   try {
+    // Xử lý Menu Thả Xuống Tu Tiên (Tu Chân Giới)
+    if (interaction.isStringSelectMenu()) {
+      if (interaction.customId === 'tutien_feature_menu') {
+        return handleTuTienSelectMenu(interaction);
+      }
+    }
+
     // Xử lý các nút bấm tương tác (Voice Control Panel)
     if (interaction.isButton()) {
     const guildId = interaction.guildId;
@@ -1783,6 +1826,46 @@ client.on('interactionCreate', async (interaction) => {
     const mainEmbed = createCharacterEmbed(char, interaction.user);
     const buttons = createMainActionRows(char);
     return interaction.reply({ embeds: [mainEmbed], components: buttons });
+  }
+
+  // Lệnh /pvp (Luận Đạo Lôi Đài)
+  if (interaction.commandName === 'pvp') {
+    const target = interaction.options.getUser('target');
+    if (!target) return interaction.reply({ content: '⚠️ Vui lòng chọn một đạo hữu để khiêu chiến!', ephemeral: true });
+    if (target.id === interaction.user.id) return interaction.reply({ content: '⚠️ Đạo hữu không thể tự luận đạo với chính mình!', ephemeral: true });
+    if (target.bot) return interaction.reply({ content: '⚠️ Không thể khiêu chiến với thần thức của Bot!', ephemeral: true });
+    const result = await handlePvP(interaction.user, target);
+    if (result.error) return interaction.reply({ content: result.error, ephemeral: true });
+    const pvpEmbed = createPvPEmbed(result.charA, result.charB, interaction.user, target, result.combatResult);
+    return interaction.reply({ embeds: [pvpEmbed] });
+  }
+
+  // Lệnh /luyendan
+  if (interaction.commandName === 'luyendan') {
+    const char = getOrInitCharacter(interaction.user);
+    const { embed, components } = createAlchemyEmbed(char, interaction.user);
+    return interaction.reply({ embeds: [embed], components });
+  }
+
+  // Lệnh /duocdien
+  if (interaction.commandName === 'duocdien') {
+    const char = getOrInitCharacter(interaction.user);
+    const { embed, components } = createFarmEmbed(char, interaction.user);
+    return interaction.reply({ embeds: [embed], components });
+  }
+
+  // Lệnh /tuido
+  if (interaction.commandName === 'tuido') {
+    const char = getOrInitCharacter(interaction.user);
+    const { embed, components } = createInventoryEmbed(char, interaction.user);
+    return interaction.reply({ embeds: [embed], components });
+  }
+
+  // Lệnh /bxh-tutien
+  if (interaction.commandName === 'bxh-tutien') {
+    const all = getAllCharacters();
+    const { embed, components } = createLeaderboardEmbed(all);
+    return interaction.reply({ embeds: [embed], components });
   }
 
   // Lệnh /reset
@@ -2612,6 +2695,41 @@ client.on('messageCreate', async (message) => {
       const mainEmbed = createCharacterEmbed(char, message.author);
       const buttons = createMainActionRows(char);
       return message.reply({ embeds: [mainEmbed], components: buttons });
+    }
+
+    if (rawContent.startsWith('!pvp')) {
+      const target = message.mentions.users.first();
+      if (!target) return message.reply('⚠️ Vui lòng tag một đạo hữu để khiêu chiến (Ví dụ: `!pvp @ten_ban`)!');
+      if (target.id === message.author.id) return message.reply('⚠️ Đạo hữu không thể tự luận đạo với chính mình!');
+      if (target.bot) return message.reply('⚠️ Không thể khiêu chiến với thần thức của Bot!');
+      const result = await handlePvP(message.author, target);
+      if (result.error) return message.reply(result.error);
+      const pvpEmbed = createPvPEmbed(result.charA, result.charB, message.author, target, result.combatResult);
+      return message.reply({ embeds: [pvpEmbed] });
+    }
+
+    if (rawContent === '!luyendan' || rawContent === 'luyendan') {
+      const char = getOrInitCharacter(message.author);
+      const { embed, components } = createAlchemyEmbed(char, message.author);
+      return message.reply({ embeds: [embed], components });
+    }
+
+    if (rawContent === '!duocdien' || rawContent === 'duocdien') {
+      const char = getOrInitCharacter(message.author);
+      const { embed, components } = createFarmEmbed(char, message.author);
+      return message.reply({ embeds: [embed], components });
+    }
+
+    if (rawContent === '!tuido' || rawContent === 'tuido') {
+      const char = getOrInitCharacter(message.author);
+      const { embed, components } = createInventoryEmbed(char, message.author);
+      return message.reply({ embeds: [embed], components });
+    }
+
+    if (rawContent === '!bxh' || rawContent === '!bxh-tutien') {
+      const all = getAllCharacters();
+      const { embed, components } = createLeaderboardEmbed(all);
+      return message.reply({ embeds: [embed], components });
     }
 
     // HỎI ĐÁP VỚI AI KHI ĐƯỢC TAG, TRONG DM HOẶC GỌI TÊN TỰ NHIÊN

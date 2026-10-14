@@ -16,6 +16,12 @@ const {
   SKILLS_CONFIG,
   BLOODLINES_CONFIG,
   HUNTING_ZONES,
+  CANH_GIO_CONFIG,
+  WEATHER_CONFIG,
+  EQUIPMENT_CONFIG,
+  SECT_RANKS_CONFIG,
+  NPCS_CONFIG,
+  getCurrentCanhGioAndWeather,
   getCalculatedStats
 } = require('./gameEngine');
 
@@ -133,7 +139,43 @@ function createFeatureSelectMenu(activeFeature = 'profile') {
         .setDescription('Chi linh thạch cắt nguyên thạch cổ kiếm phỉ thúy cực phẩm')
         .setValue('feature_gambling')
         .setEmoji('💎')
-        .setDefault(activeFeature === 'gambling')
+        .setDefault(activeFeature === 'gambling'),
+      new StringSelectMenuOptionBuilder()
+        .setLabel('Lục Đại Trang Bị Bản Mệnh')
+        .setDescription('Mặc & tháo Binh Khí, Pháp Y, Giày, Hộ Phù, Nhẫn, Dị Bảo')
+        .setValue('feature_equipment')
+        .setEmoji('🛡️')
+        .setDefault(activeFeature === 'equipment'),
+      new StringSelectMenuOptionBuilder()
+        .setLabel('Tông Môn Điện & Khảo Hạch')
+        .setDescription('Thăng cấp Tạp Dịch -> Ngoại/Nội Môn -> Thánh Tử & nhận bổng lộc khủng')
+        .setValue('feature_sect')
+        .setEmoji('🏛️')
+        .setDefault(activeFeature === 'sect'),
+      new StringSelectMenuOptionBuilder()
+        .setLabel('Tiên Duyên Đạo Lữ & Song Tu')
+        .setDescription('Kết duyên kết tóc, bế quan song tu nhận tu vi & hộ pháp độ kiếp')
+        .setValue('feature_daolu')
+        .setEmoji('🌸')
+        .setDefault(activeFeature === 'daolu'),
+      new StringSelectMenuOptionBuilder()
+        .setLabel('Lôi Hoàn Đổ Mệnh (Roulette)')
+        .setDescription('Bàn cược súng điện 6 viên thật/giả với Ma Tu tửu lâu')
+        .setValue('feature_buckshot')
+        .setEmoji('⚡')
+        .setDefault(activeFeature === 'buckshot'),
+      new StringSelectMenuOptionBuilder()
+        .setLabel('Danh Phả Đại NPC & Hảo Cảm')
+        .setDescription('Gặp gỡ 31 NPC, tặng quà tăng hảo cảm đoạt truyền thừa gia hộ')
+        .setValue('feature_npc')
+        .setEmoji('👥')
+        .setDefault(activeFeature === 'npc'),
+      new StringSelectMenuOptionBuilder()
+        .setLabel('Phi Kiếm Truyền Thư (Tặng Đồ P2P)')
+        .setDescription('Gửi Linh Thạch & Bảo Vật qua hòm thư cho đạo hữu trong server')
+        .setValue('feature_transfer')
+        .setEmoji('💌')
+        .setDefault(activeFeature === 'transfer')
     ]);
 
   return new ActionRowBuilder().addComponents(menu);
@@ -146,6 +188,11 @@ function createCharacterEmbed(char, user) {
   const color = RACE_COLORS[char.race] || 0xFFD700;
   const root = SPIRITUAL_ROOTS[char.spiritualRoot] || { name: 'Phàm Linh Căn', element: char.element || 'Hỗn Tạp' };
   const aptitude = APTITUDES[char.aptitude] || { name: char.aptitude || 'Bình Thường' };
+  const sect = SECT_RANKS_CONFIG[char.sectRank || 'TAP_DICH'] || SECT_RANKS_CONFIG.TAP_DICH;
+
+  const timeData = stats.timeData || getCurrentCanhGioAndWeather();
+  const cg = timeData.canhGio;
+  const wt = timeData.weather;
 
   const expBar = renderProgressBar(char.exp, stats.maxExp, 14);
 
@@ -164,6 +211,8 @@ function createCharacterEmbed(char, user) {
     .setDescription(
       `### 🪪 Đạo Hiệu: **${char.name}**\n` +
       `*${char.activeTitle || 'Tân Thủ Nhập Đạo'}* • Phụng sự dưới vòm trời <@${user.id}>\n` +
+      `⏰ **Thiên Thời:** ${cg.icon} **Giờ ${cg.name}** (${cg.phenomenon}) • ${wt.icon} **${wt.name}**\n` +
+      `> 💡 *${cg.bonusDesc} (Còn ${timeData.remainSec}s)*\n` +
       `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${readyNotice}`
     )
     .setColor(color)
@@ -176,7 +225,8 @@ function createCharacterEmbed(char, user) {
           `• **Ngũ Hành:** 🌀 **Hệ ${char.element || 'Hỏa'}**\n` +
           `• **Linh Căn:** 🔮 **${root.name || char.spiritualRoot}**\n` +
           `• **Thể Chất:** ✨ **${char.physique || 'Phàm Thai Nhục Thân'}**\n` +
-          `• **Tư Chất:** 📜 **${aptitude.name || char.aptitude}**`,
+          `• **Tông Môn:** 🏛️ **${sect.name}**\n` +
+          `• **Đạo Lữ:** 💖 **${char.partnerName || 'Chưa Có (Tán Tu)'}**`,
         inline: true
       },
       {
@@ -1078,5 +1128,354 @@ module.exports = {
   createTreasureEmbed,
   createBountyEmbed,
   createGamblingEmbed
+};
+
+// 20. EMBED LỤC ĐẠI TRANG BỊ BẢN MỆNH (DOC 21, 23)
+function createEquipmentEmbed(char, user, actionMsg = null) {
+  const eq = char.equippedArtifacts || {};
+  const slots = [
+    { key: 'weapon', label: '🗡️ Binh Khí', id: eq.weapon },
+    { key: 'armor', label: '🥋 Pháp Y', id: eq.armor },
+    { key: 'boots', label: '🥾 Hài Thân Pháp', id: eq.boots },
+    { key: 'amulet', label: '📿 Ngọc Bội', id: eq.amulet },
+    { key: 'ring', label: '💍 Giới Chỉ', id: eq.ring },
+    { key: 'relic', label: '🏺 Dị Bảo', id: eq.relic }
+  ];
+
+  let equipText = slots.map(s => {
+    const it = s.id ? EQUIPMENT_CONFIG[s.id] : null;
+    return `• **${s.label}:** ${it ? `${it.icon} **${it.name}** (${it.tier})\n  > *${it.desc}*` : '`[Ô Trống - Chưa Trang Bị]`'}`;
+  }).join('\n');
+
+  const inv = char.inventory || {};
+  const equipableItems = Object.keys(inv).filter(k => EQUIPMENT_CONFIG[k] && inv[k] > 0);
+  let invEquipText = equipableItems.length > 0
+    ? equipableItems.map(k => `• ${EQUIPMENT_CONFIG[k].icon} **${EQUIPMENT_CONFIG[k].name}** x${inv[k]}`).join('\n')
+    : '*Không có trang bị dự phòng trong túi.*';
+
+  let notice = actionMsg ? `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n✨ **${actionMsg}**\n` : '';
+
+  const embed = new EmbedBuilder()
+    .setTitle(`🥋 LỤC ĐẠI TRANG BỊ BẢN MỆNH (PAPERDOLL)`)
+    .setDescription(
+      `Đạo Hiệu: **${char.name}**\n` +
+      `*Mỗi vị trí trang bị cố định gia tăng vĩnh viễn thuộc tính chiến đấu và kháng lôi!*\n\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `🛡️ **KHUNG TRANG BỊ 6 VỊ TRÍ:**\n${equipText}\n\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `🎒 **TRANG BỊ TRONG TÚI TRỮ VẬT:**\n${invEquipText}${notice}`
+    )
+    .setColor(0x3498DB)
+    .setFooter({ text: 'Nhấn nút bên dưới để mặc nhanh hoặc tháo trang bị!' })
+    .setTimestamp();
+
+  const selectRow = createFeatureSelectMenu('equipment');
+  const rowButtons = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('tutien_equip_quick')
+      .setLabel('⚡ Mặc Nhanh Trang Bị Tốt Nhất')
+      .setStyle(ButtonStyle.Success)
+      .setDisabled(equipableItems.length === 0),
+    new ButtonBuilder()
+      .setCustomId('tutien_unequip_all')
+      .setLabel('🛑 Tháo Toàn Bộ Trang Bị')
+      .setStyle(ButtonStyle.Danger)
+      .setDisabled(!slots.some(s => s.id)),
+    new ButtonBuilder()
+      .setCustomId('tutien_refresh')
+      .setLabel('🔄 Làm Mới')
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  return { embed, components: [selectRow, rowButtons] };
+}
+
+// 21. EMBED TÔNG MÔN ĐIỆN & KHẢO HẠCH THĂNG CẤP (DOC 12)
+function createSectEmbed(char, user, actionMsg = null) {
+  const rankId = char.sectRank || 'TAP_DICH';
+  const rank = SECT_RANKS_CONFIG[rankId] || SECT_RANKS_CONFIG.TAP_DICH;
+  const nextRank = rank.nextRank ? SECT_RANKS_CONFIG[rank.nextRank] : null;
+
+  const reqRealm = nextRank ? REALMS.find(r => r.id === nextRank.reqRealmId) : null;
+  const canPromote = nextRank && char.realmId >= nextRank.reqRealmId && (char.spiritStones || 0) >= nextRank.reqStones;
+
+  let promoteInfo = nextRank
+    ? `🎯 **KHẢO HẠCH THĂNG CẤP TIẾP THEO: ${nextRank.icon} ${nextRank.name}**\n` +
+      `• Yêu Cầu Cảnh Giới: **${reqRealm?.name || '---'}** (Hiện tại: ${REALMS.find(r => r.id === char.realmId)?.name})\n` +
+      `• Cống Hiến Linh Thạch: **${nextRank.reqStones.toLocaleString('vi-VN')} viên** (Hiện có: ${(char.spiritStones || 0).toLocaleString('vi-VN')} viên)\n` +
+      `• Bổng lộc sau thăng cấp: **${nextRank.stipend.toLocaleString('vi-VN')} Linh Thạch / ngày**!`
+    : `🌟 **ĐẠI CÔNG CÁO THÀNH!**\nĐạo hữu đã đạt đến phẩm bậc tối cao **Thánh Tử / Thánh Nữ**, nắm giữ toàn quyền sinh sát của môn phái!`;
+
+  let notice = actionMsg ? `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n✨ **${actionMsg}**\n` : '';
+
+  const embed = new EmbedBuilder()
+    .setTitle(`🏛️ TÔNG MÔN ĐIỆN • LỤC ĐẲNG ĐỆ TỬ`)
+    .setDescription(
+      `Đạo Hiệu: **${char.name}** • Xuất Thân: **${char.sectOrigin === 'TAN_TU' ? 'Tán Tu Tự Do' : char.sectOrigin}**\n` +
+      `Chức Vị: ${rank.icon} **${rank.name}** (${rank.title})\n` +
+      `> *${rank.desc}*\n\n` +
+      `🎁 **Bổng Lộc Hiện Tại:** \`${rank.stipend.toLocaleString('vi-VN')} Linh Thạch / ngày\`\n\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `${promoteInfo}${notice}`
+    )
+    .setColor(0xF39C12)
+    .setFooter({ text: 'Chăm chỉ tu luyện và cống hiến để bước lên bảo tọa Thánh Tử hiệu lệnh cửu châu!' })
+    .setTimestamp();
+
+  const selectRow = createFeatureSelectMenu('sect');
+  const rowButtons = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('tutien_sect_promote')
+      .setLabel(canPromote ? `🏛️ Vượt Khảo Hạch -> ${nextRank?.name}` : '🔒 Chưa Đủ Điều Kiện Thăng Cấp')
+      .setStyle(canPromote ? ButtonStyle.Success : ButtonStyle.Secondary)
+      .setDisabled(!canPromote),
+    new ButtonBuilder()
+      .setCustomId('tutien_stipend_claim')
+      .setLabel('🎁 Nhận Bổng Lộc Hôm Nay')
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId('tutien_refresh')
+      .setLabel('🔄 Làm Mới')
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  return { embed, components: [selectRow, rowButtons] };
+}
+
+// 22. EMBED TIÊN DUYÊN ĐẠO LỮ & SONG TU (DOC 26)
+function createDaoLuEmbed(char, user, actionMsg = null) {
+  const hasPartner = !!char.partnerName;
+  const now = Date.now();
+  const lastSongTu = char.lastSongTuAt || 0;
+  const canSongTu = hasPartner && ((now - lastSongTu) >= 24 * 3600 * 1000);
+  const remainHours = Math.max(0, Math.ceil((24 * 3600 * 1000 - (now - lastSongTu)) / 3600000));
+
+  let partnerInfo = hasPartner
+    ? `💍 **ĐẠO LỮ BẢN MỆNH:** **${char.partnerName}**\n` +
+      `• Tình trạng: 💖 Vĩnh Kết Đồng Tâm • Cùng chung thọ mệnh sinh tử\n` +
+      `• Đặc quyền Song Tu: Mỗi 24 giờ nhận **3 giờ Tu Vi bế quan** và thanh trừ **-10% Đan Độc**!\n` +
+      `• Đặc quyền Hộ Pháp: Khi độ kiếp, Đạo Lữ **tự động gánh đỡ 35% sát thương Lôi Kiếp**!`
+    : `💔 **HIỆN TẠI ĐỘC THÂN:**\n` +
+      `Đạo hữu chưa kết tóc se duyên cùng ai. Để kết duyên Đạo Lữ:\n` +
+      `1. Chuẩn bị **5.000 Linh Thạch** để sắm Định Tình Ngọc Bội.\n` +
+      `2. Dùng lệnh \`/daolu @nguoi_thuong\` để gửi lời cầu hôn!`;
+
+  let notice = actionMsg ? `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n✨ **${actionMsg}**\n` : '';
+
+  const embed = new EmbedBuilder()
+    .setTitle(`🌸 TIÊN DUYÊN ĐẠO LỮ • SONG TU BẢN MỆNH`)
+    .setDescription(
+      `Đạo Hiệu: **${char.name}**\n` +
+      `*Tu tiên nghịch thiên vạn năm cô độc, có được tri kỷ đồng hành ấy là thiên đại phúc duyên!*\n\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `${partnerInfo}${notice}`
+    )
+    .setColor(0xE91E63)
+    .setFooter({ text: 'Có đạo lữ hộ pháp, xác suất vượt qua cửu trọng lôi kiếp tăng vọt!' })
+    .setTimestamp();
+
+  const selectRow = createFeatureSelectMenu('daolu');
+  const rowButtons = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('tutien_songtu_action')
+      .setLabel(canSongTu ? '🌸 Bế Quan Song Tu (3h Tu Vi)' : (hasPartner ? `⏳ Song Tu Sau ${remainHours}h` : '🔒 Cần Có Đạo Lữ'))
+      .setStyle(canSongTu ? ButtonStyle.Success : ButtonStyle.Secondary)
+      .setDisabled(!canSongTu),
+    new ButtonBuilder()
+      .setCustomId('tutien_divorce')
+      .setLabel('💔 Cắt Đứt Tiên Duyên')
+      .setStyle(ButtonStyle.Danger)
+      .setDisabled(!hasPartner),
+    new ButtonBuilder()
+      .setCustomId('tutien_refresh')
+      .setLabel('🔄 Làm Mới')
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  return { embed, components: [selectRow, rowButtons] };
+}
+
+// 23. EMBED LÔI HOÀN ĐỔ MỆNH (BUCKSHOT ROULETTE - DOC 15)
+function createBuckshotEmbed(game, user) {
+  const bulletsLeft = game.bullets.length - game.bulletIndex;
+  const playerHearts = '❤️'.repeat(Math.max(0, game.playerHp)) + '🖤'.repeat(Math.max(0, 3 - game.playerHp));
+  const foeHearts = '🩸'.repeat(Math.max(0, game.foeHp)) + '🖤'.repeat(Math.max(0, 3 - game.foeHp));
+
+  let recentLogs = game.logs.slice(0, 3).map(l => `> ${l}`).join('\n');
+
+  let resultNotice = '';
+  if (game.isFinished) {
+    resultNotice = game.winner === 'player'
+      ? `\n\n🎉 **CHIẾN THẮNG TUYỆT ĐỐI!** Nhận trọn vẹn: \`+${(game.betStones * 2).toLocaleString('vi-VN')} Linh Thạch\`!`
+      : `\n\n💀 **TỬ TRẬN TRÊN BÀN CƯỢC!** Mất trắng \`${game.betStones.toLocaleString('vi-VN')} Linh Thạch\`!`;
+  }
+
+  const embed = new EmbedBuilder()
+    .setTitle(`⚡ BẤT DẠ THIÊN TỬU LÂU • LÔI HOÀN ĐỔ MỆNH`)
+    .setDescription(
+      `*Bàn cờ bạc sinh tử giữa Đạo Hữu và Ma Tu sòng bạc (Cược: ${game.betStones.toLocaleString('vi-VN')} LT)*\n\n` +
+      `🧑 **Đạo Hữu:** ${playerHearts} (\`${game.playerHp}/3 Máu\`)\n` +
+      `👹 **${game.foeName}:** ${foeHearts} (\`${game.foeHp}/3 Máu\`)\n` +
+      `🔫 **Lôi Hoàn Cổ Khí:** Còn **${bulletsLeft} viên lôi đan** trong nòng (${game.sawedOff ? '🔥 **Nòng Đao X2 Sát Thương!**' : 'Chuẩn'})\n\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `📜 **DIỄN BIẾN HIỆP TRƯỚC:**\n${recentLogs}${resultNotice}`
+    )
+    .setColor(game.isFinished ? (game.winner === 'player' ? 0x2ECC71 : 0xE74C3C) : 0x9B59B6)
+    .setFooter({ text: 'Tự bắn vào ngực: trúng đạn giả được đi tiếp, trúng đạn thật mất máu và mất lượt!' })
+    .setTimestamp();
+
+  const selectRow = createFeatureSelectMenu('buckshot');
+  const actionRow1 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('tutien_buck_self')
+      .setLabel('💥 Tự Bắn Vào Ngực (Cược Lượt)')
+      .setStyle(ButtonStyle.Primary)
+      .setDisabled(game.isFinished),
+    new ButtonBuilder()
+      .setCustomId('tutien_buck_foe')
+      .setLabel('⚡ Chĩa Súng Bắn Ma Tu')
+      .setStyle(ButtonStyle.Danger)
+      .setDisabled(game.isFinished),
+    new ButtonBuilder()
+      .setCustomId('tutien_buck_restart')
+      .setLabel('🔄 Ván Mới (200 LT)')
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  const actionRow2 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('tutien_buck_kinh')
+      .setLabel('🔍 Soi Đạn')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(game.isFinished || !game.tacticalItems.includes('kinh_soi')),
+    new ButtonBuilder()
+      .setCustomId('tutien_buck_dao')
+      .setLabel('🗡️ Cắt Nòng x2')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(game.isFinished || !game.tacticalItems.includes('toai_dao') || game.sawedOff),
+    new ButtonBuilder()
+      .setCustomId('tutien_buck_thuoc')
+      .setLabel('💊 Hồi +1 Máu')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(game.isFinished || !game.tacticalItems.includes('hoi_xuan') || game.playerHp >= 3)
+  );
+
+  return { embed, components: [selectRow, actionRow1, actionRow2] };
+}
+
+// 24. EMBED TOÀN THƯ ĐẠI NPC & HẢO CẢM (DOC 13)
+function createNpcEmbed(char, user, selectedNpcKey = 'huyen_co', actionMsg = null) {
+  const npc = NPCS_CONFIG[selectedNpcKey] || NPCS_CONFIG['huyen_co'];
+  const aff = (char.npcAffinities && char.npcAffinities[selectedNpcKey]) || 0;
+  const affBar = renderProgressBar(aff, 100, 10);
+
+  const inv = char.inventory || {};
+  const hasFav = (inv[npc.giftLiked] || 0) > 0;
+  const hasHerb = (inv['thao_duoc_linh_chi'] || 0) > 0 || (inv['thao_duoc_hoang_tinh'] || 0) > 0;
+
+  let notice = actionMsg ? `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n✨ **${actionMsg}**\n` : '';
+
+  const embed = new EmbedBuilder()
+    .setTitle(`👥 TOÀN THƯ ĐẠI NPC • DUYÊN KHỞI NHÂN QUẢ`)
+    .setDescription(
+      `Đạo Hiệu: **${char.name}**\n` +
+      `*Mỗi vị NPC ẩn chứa một đoạn quá khứ kinh thiên và cơ duyên truyền thừa độc quyền!*\n\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `### ${npc.avatar} **${npc.name}** (${npc.sect})\n` +
+      `> *${npc.desc}*\n\n` +
+      `💖 **Độ Hảo Cảm:** ${affBar} (\`${aff} / 100\`)\n` +
+      `🎁 **Lễ Vật Yêu Thích:** \`${npc.giftLiked.replace(/_/g, ' ').toUpperCase()}\` (+35 Hảo Cảm)\n` +
+      `🌟 **Phúc Duyên Gia Hộ (Đạt 100):** **${npc.blessing}**${aff >= 100 ? ' ✅ **(ĐANG KÍCH HOẠT)**' : ' 🔒'}${notice}`
+    )
+    .setColor(0x9B59B6)
+    .setFooter({ text: 'Tặng dược thảo hoặc dị bảo để tăng hảo cảm và mở khóa phúc duyên vĩnh viễn!' })
+    .setTimestamp();
+
+  const selectRow = createFeatureSelectMenu('npc');
+  const rowButtons = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`tutien_npc_gift_fav_${selectedNpcKey}`)
+      .setLabel(`🎁 Tặng ${npc.giftLiked.replace(/_/g, ' ')} (+35)`)
+      .setStyle(hasFav ? ButtonStyle.Success : ButtonStyle.Secondary)
+      .setDisabled(!hasFav || aff >= 100),
+    new ButtonBuilder()
+      .setCustomId(`tutien_npc_gift_herb_${selectedNpcKey}`)
+      .setLabel('🌿 Tặng Linh Chi (+15)')
+      .setStyle(hasHerb ? ButtonStyle.Primary : ButtonStyle.Secondary)
+      .setDisabled(!hasHerb || aff >= 100),
+    new ButtonBuilder()
+      .setCustomId('tutien_npc_next')
+      .setLabel('⏭️ Đổi NPC Khác')
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  return { embed, components: [selectRow, rowButtons] };
+}
+
+// 25. EMBED PHI KIẾM TRUYỀN THƯ & GIAO DỊCH P2P (DOC 25)
+function createTransferEmbed(char, user, actionMsg = null) {
+  let notice = actionMsg ? `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n✨ **${actionMsg}**\n` : '';
+
+  const embed = new EmbedBuilder()
+    .setTitle(`💌 PHI KIẾM TRUYỀN THƯ • GIAO DỊCH P2P`)
+    .setDescription(
+      `Đạo Hiệu: **${char.name}** • Linh Thạch Hiện Có: \`${(char.spiritStones || 0).toLocaleString('vi-VN')} viên\`\n` +
+      `*Gửi tặng Linh Thạch và Pháp Bảo qua ngàn dặm không gian cho đạo hữu trong server!*\n\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `📜 **HƯỚNG DẪN GỬI TIÊN THƯ:**\n` +
+      `• **Lệnh Chuyển Linh Thạch:**\n` +
+      `  > Gõ: \`/chuyen target:@user stones:1000\` hoặc \`!chuyen @user 1000\`\n` +
+      `• **Lệnh Chuyển Vật Phẩm:**\n` +
+      `  > Gõ: \`/chuyen target:@user item:dan_the_luc qty:2\` hoặc \`!chuyen @user dan_the_luc 2\`\n\n` +
+      `📦 Lễ vật sẽ được đóng gói an toàn và bay thẳng vào **Hòm Thư Tiên Tín** của người nhận!${notice}`
+    )
+    .setColor(0x1ABC9C)
+    .setFooter({ text: 'Phi kiếm truyền thư an toàn 100%, bảo mật danh tính và tài sản!' })
+    .setTimestamp();
+
+  const selectRow = createFeatureSelectMenu('transfer');
+  const rowButtons = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('tutien_mailbox_view')
+      .setLabel('📬 Mở Hòm Thư Của Tôi')
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId('tutien_refresh')
+      .setLabel('🔄 Làm Mới')
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  return { embed, components: [selectRow, rowButtons] };
+}
+
+module.exports = {
+  RACE_COLORS,
+  renderProgressBar,
+  createFeatureSelectMenu,
+  createCharacterEmbed,
+  createMainActionRows,
+  createCultivateResultEmbed,
+  createTribulationEmbed,
+  createCombatEmbed,
+  createWorldBossEmbed,
+  createAlchemyEmbed,
+  createFarmEmbed,
+  createCleanseEmbed,
+  createReservoirEmbed,
+  createPhysiqueEmbed,
+  createSkillsEmbed,
+  createMailboxEmbed,
+  createInventoryEmbed,
+  createLeaderboardEmbed,
+  createPvPEmbed,
+  createTreasureEmbed,
+  createBountyEmbed,
+  createGamblingEmbed,
+  createEquipmentEmbed,
+  createSectEmbed,
+  createDaoLuEmbed,
+  createBuckshotEmbed,
+  createNpcEmbed,
+  createTransferEmbed
 };
 

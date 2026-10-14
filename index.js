@@ -56,7 +56,9 @@ const {
   getOrInitCharacter,
   handleTuTienButtonInteraction,
   handleTuTienSelectMenu,
-  handlePvP
+  handlePvP,
+  transferStonesOrItem,
+  marryPartner
 } = require('./tutien/tutienHandler');
 const {
   createCharacterEmbed,
@@ -68,9 +70,15 @@ const {
   createPvPEmbed,
   createTreasureEmbed,
   createBountyEmbed,
-  createGamblingEmbed
+  createGamblingEmbed,
+  createEquipmentEmbed,
+  createSectEmbed,
+  createDaoLuEmbed,
+  createBuckshotEmbed,
+  createNpcEmbed,
+  createTransferEmbed
 } = require('./tutien/tutienUI');
-const { getAllCharacters } = require('./tutien/db');
+const { getAllCharacters, saveCharacter } = require('./tutien/db');
 
 let loginStatus = 'Khởi tạo...';
 let loginError = null;
@@ -1593,6 +1601,41 @@ client.once('ready', async () => {
     new SlashCommandBuilder()
       .setName('dothach')
       .setDescription('Đổ thạch phường thị kiếm ngọc cực phẩm và bí kíp thượng cổ'),
+
+    // 33. Lục Đại Trang Bị
+    new SlashCommandBuilder()
+      .setName('trangbi')
+      .setDescription('Mở Bảng Điều Khiển Lục Đại Trang Bị Bản Mệnh (Paperdoll)'),
+
+    // 34. Tông Môn Điện & Khảo Hạch
+    new SlashCommandBuilder()
+      .setName('tongmon')
+      .setDescription('Mở Tông Môn Điện kiểm tra chức vị và vượt khảo hạch thăng cấp đệ tử'),
+
+    // 35. Tiên Duyên Đạo Lữ
+    new SlashCommandBuilder()
+      .setName('daolu')
+      .setDescription('Mở Tiên Duyên Đạo Lữ hoặc cầu hôn kết duyên cùng bạn chơi')
+      .addUserOption((opt) => opt.setName('target').setDescription('Đạo hữu bạn muốn cầu hôn kết duyên').setRequired(false)),
+
+    // 36. Lôi Hoàn Đổ Mệnh
+    new SlashCommandBuilder()
+      .setName('loihoan')
+      .setDescription('Tham gia ván cược Lôi Hoàn Đổ Mệnh (Buckshot Roulette Tiên Hiệp)'),
+
+    // 37. Đại NPC & Hảo Cảm
+    new SlashCommandBuilder()
+      .setName('npc')
+      .setDescription('Gặp gỡ Đại NPC, tặng quà tăng hảo cảm và mở khóa phúc duyên gia hộ'),
+
+    // 38. Phi Kiếm Truyền Thư (Giao Dịch P2P)
+    new SlashCommandBuilder()
+      .setName('chuyen')
+      .setDescription('Phi kiếm truyền thư gửi tặng Linh Thạch hoặc vật phẩm cho đạo hữu')
+      .addUserOption((opt) => opt.setName('target').setDescription('Đạo hữu nhận lễ vật').setRequired(true))
+      .addIntegerOption((opt) => opt.setName('stones').setDescription('Số lượng Linh Thạch gửi tặng').setRequired(false))
+      .addStringOption((opt) => opt.setName('item').setDescription('Mã vật phẩm muốn tặng (ví dụ: dan_the_luc)').setRequired(false))
+      .addIntegerOption((opt) => opt.setName('qty').setDescription('Số lượng vật phẩm (mặc định 1)').setRequired(false)),
   ];
 
   try {
@@ -1904,6 +1947,84 @@ client.on('interactionCreate', async (interaction) => {
   if (interaction.commandName === 'dothach') {
     const char = getOrInitCharacter(interaction.user);
     const { embed, components } = createGamblingEmbed(char, interaction.user);
+    return interaction.reply({ embeds: [embed], components });
+  }
+
+  // Lệnh /trangbi
+  if (interaction.commandName === 'trangbi') {
+    const char = getOrInitCharacter(interaction.user);
+    const { embed, components } = createEquipmentEmbed(char, interaction.user);
+    return interaction.reply({ embeds: [embed], components });
+  }
+
+  // Lệnh /tongmon
+  if (interaction.commandName === 'tongmon') {
+    const char = getOrInitCharacter(interaction.user);
+    const { embed, components } = createSectEmbed(char, interaction.user);
+    return interaction.reply({ embeds: [embed], components });
+  }
+
+  // Lệnh /daolu
+  if (interaction.commandName === 'daolu') {
+    const char = getOrInitCharacter(interaction.user);
+    const target = interaction.options.getUser('target');
+    if (target) {
+      if (target.id === interaction.user.id) return interaction.reply({ content: '⚠️ Đạo hữu không thể tự kết duyên với chính mình!', ephemeral: true });
+      if (target.bot) return interaction.reply({ content: '⚠️ Không thể kết duyên cùng thần thức của Bot!', ephemeral: true });
+      const targetChar = getOrInitCharacter(target);
+      const res = marryPartner(char, targetChar);
+      if (res.error) return interaction.reply({ content: res.error, ephemeral: true });
+      saveCharacter(interaction.user.id, char);
+      saveCharacter(target.id, targetChar);
+      const { embed, components } = createDaoLuEmbed(char, interaction.user, `🎉 Hỷ khí trùng thiên! Chúc mừng hai vị **${char.name}** và **${targetChar.name}** vĩnh kết đồng tâm, se duyên Đạo Lữ!`);
+      return interaction.reply({ embeds: [embed], components });
+    }
+    const { embed, components } = createDaoLuEmbed(char, interaction.user);
+    return interaction.reply({ embeds: [embed], components });
+  }
+
+  // Lệnh /loihoan
+  if (interaction.commandName === 'loihoan') {
+    const char = getOrInitCharacter(interaction.user);
+    if ((char.spiritStones || 0) < 200) {
+      return interaction.reply({ content: '⚠️ Cần ít nhất 200 Linh Thạch để đặt cược Lôi Hoàn!', ephemeral: true });
+    }
+    const { initBuckshotGame } = require('./tutien/gameEngine');
+    char.spiritStones -= 200;
+    saveCharacter(interaction.user.id, char);
+    const game = initBuckshotGame(interaction.user.id, 200);
+    const { embed, components } = createBuckshotEmbed(game, interaction.user);
+    return interaction.reply({ embeds: [embed], components });
+  }
+
+  // Lệnh /npc
+  if (interaction.commandName === 'npc') {
+    const char = getOrInitCharacter(interaction.user);
+    const { embed, components } = createNpcEmbed(char, interaction.user, 'huyen_co');
+    return interaction.reply({ embeds: [embed], components });
+  }
+
+  // Lệnh /chuyen
+  if (interaction.commandName === 'chuyen') {
+    const char = getOrInitCharacter(interaction.user);
+    const target = interaction.options.getUser('target');
+    const stones = interaction.options.getInteger('stones') || 0;
+    const item = interaction.options.getString('item') || null;
+    const qty = interaction.options.getInteger('qty') || 1;
+
+    if (!target) return interaction.reply({ content: '⚠️ Vui lòng chỉ định đạo hữu nhận lễ vật!', ephemeral: true });
+    if (target.id === interaction.user.id) return interaction.reply({ content: '⚠️ Không thể tự chuyển đồ cho chính mình!', ephemeral: true });
+    if (target.bot) return interaction.reply({ content: '⚠️ Không thể chuyển đồ cho Bot!', ephemeral: true });
+
+    const targetChar = getOrInitCharacter(target);
+    const res = transferStonesOrItem(char, targetChar, stones, item, qty);
+    if (res.error) return interaction.reply({ content: res.error, ephemeral: true });
+
+    saveCharacter(interaction.user.id, char);
+    saveCharacter(target.id, targetChar);
+
+    const detail = stones > 0 ? `${stones.toLocaleString('vi-VN')} Linh Thạch` : `${item} x${qty}`;
+    const { embed, components } = createTransferEmbed(char, interaction.user, `Đã phi kiếm truyền thư thành công **${detail}** bay thẳng vào Hòm Thư của **${targetChar.name}**!`);
     return interaction.reply({ embeds: [embed], components });
   }
 
@@ -2786,6 +2907,76 @@ client.on('messageCreate', async (message) => {
     if (rawContent === '!dothach' || rawContent === 'dothach') {
       const char = getOrInitCharacter(message.author);
       const { embed, components } = createGamblingEmbed(char, message.author);
+      return message.reply({ embeds: [embed], components });
+    }
+
+    if (rawContent === '!trangbi' || rawContent === 'trangbi') {
+      const char = getOrInitCharacter(message.author);
+      const { embed, components } = createEquipmentEmbed(char, message.author);
+      return message.reply({ embeds: [embed], components });
+    }
+
+    if (rawContent === '!tongmon' || rawContent === 'tongmon') {
+      const char = getOrInitCharacter(message.author);
+      const { embed, components } = createSectEmbed(char, message.author);
+      return message.reply({ embeds: [embed], components });
+    }
+
+    if (rawContent.startsWith('!daolu')) {
+      const char = getOrInitCharacter(message.author);
+      const target = message.mentions.users.first();
+      if (target) {
+        if (target.id === message.author.id) return message.reply('⚠️ Đạo hữu không thể tự kết duyên với chính mình!');
+        if (target.bot) return message.reply('⚠️ Không thể kết duyên cùng Bot!');
+        const targetChar = getOrInitCharacter(target);
+        const res = marryPartner(char, targetChar);
+        if (res.error) return message.reply(res.error);
+        saveCharacter(message.author.id, char);
+        saveCharacter(target.id, targetChar);
+        const { embed, components } = createDaoLuEmbed(char, message.author, `🎉 Hỷ khí trùng thiên! Chúc mừng hai vị **${char.name}** và **${targetChar.name}** vĩnh kết đồng tâm, se duyên Đạo Lữ!`);
+        return message.reply({ embeds: [embed], components });
+      }
+      const { embed, components } = createDaoLuEmbed(char, message.author);
+      return message.reply({ embeds: [embed], components });
+    }
+
+    if (rawContent === '!loihoan' || rawContent === 'loihoan') {
+      const char = getOrInitCharacter(message.author);
+      if ((char.spiritStones || 0) < 200) {
+        return message.reply('⚠️ Cần ít nhất 200 Linh Thạch để đặt cược Lôi Hoàn!');
+      }
+      const { initBuckshotGame } = require('./tutien/gameEngine');
+      char.spiritStones -= 200;
+      saveCharacter(message.author.id, char);
+      const game = initBuckshotGame(message.author.id, 200);
+      const { embed, components } = createBuckshotEmbed(game, message.author);
+      return message.reply({ embeds: [embed], components });
+    }
+
+    if (rawContent === '!npc' || rawContent === 'npc') {
+      const char = getOrInitCharacter(message.author);
+      const { embed, components } = createNpcEmbed(char, message.author, 'huyen_co');
+      return message.reply({ embeds: [embed], components });
+    }
+
+    if (rawContent.startsWith('!chuyen')) {
+      const char = getOrInitCharacter(message.author);
+      const target = message.mentions.users.first();
+      const parts = rawContent.split(/\s+/);
+      const stones = parseInt(parts[2], 10) || 0;
+
+      if (!target) return message.reply('⚠️ Vui lòng tag đạo hữu nhận lễ vật (Ví dụ: `!chuyen @user 1000`)!');
+      if (target.id === message.author.id) return message.reply('⚠️ Không thể tự chuyển đồ cho chính mình!');
+      if (target.bot) return message.reply('⚠️ Không thể chuyển đồ cho Bot!');
+
+      const targetChar = getOrInitCharacter(target);
+      const res = transferStonesOrItem(char, targetChar, stones, null, 1);
+      if (res.error) return message.reply(res.error);
+
+      saveCharacter(message.author.id, char);
+      saveCharacter(target.id, targetChar);
+
+      const { embed, components } = createTransferEmbed(char, message.author, `Đã phi kiếm truyền thư thành công **${stones.toLocaleString('vi-VN')} Linh Thạch** bay thẳng vào Hòm Thư của **${targetChar.name}**!`);
       return message.reply({ embeds: [embed], components });
     }
 

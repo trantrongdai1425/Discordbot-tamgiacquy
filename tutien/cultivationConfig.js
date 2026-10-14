@@ -791,6 +791,108 @@ function evaluateKimDanGrade(stability, pillToxins, sectId = null) {
   return evaluateKimDanBreakthrough(stability, pillToxins, sectId);
 }
 
+// =========================================================================
+// 11. HỆ THỐNG THIÊN THỜI: THẬP NHỊ THỜI THẦN (12 CANH GIỜ) & KHÍ TƯỢNG (DOC 09)
+// Chu kỳ 48 phút thực tế = 1 Ngày Đêm Tu Tiên (Mỗi Canh Giờ = 4 phút thực tế)
+// =========================================================================
+const CANH_GIO_CONFIG = [
+  { index: 0, name: 'TÝ', icon: '🌑', range: '00 - 04p', phenomenon: 'Thái Âm Cực Thịnh', element: 'Thủy / Băng / Ám', bonusDesc: 'Công kích hệ Thủy/Băng/Ám +25% | Mở Chợ Đen Ma Tiêu Cục', type: 'THUY_BANG', atkBonus: 0.25 },
+  { index: 1, name: 'SỬU', icon: '🪨', range: '04 - 08p', phenomenon: 'Âm Trọc Trầm Tích', element: 'Thổ', bonusDesc: 'Phòng ngự Thổ Mệnh +20% | Bế quan tẩy đan độc hiệu quả +30%', type: 'THO', defBonus: 0.20, cleanseBonus: 0.30 },
+  { index: 2, name: 'DẦN', icon: '🌅', range: '08 - 12p', phenomenon: 'Dương Khí Sơ Sinh', element: 'Dương Lôi', bonusDesc: '⚡ GIỜ VÀNG ĐỘ KIẾP: Sát thương Lôi Kiếp tự nhiên giảm -15%', type: 'LOI_GIO_VANG', tribReduce: 0.15 },
+  { index: 3, name: 'MÃO', icon: '🌸', range: '12 - 16p', phenomenon: 'Tử Khí Đông Lai', element: 'Toàn Hệ', bonusDesc: 'Tọa Thiền Tĩnh Tọa toàn server nhận thêm +30% Tu Vi/giây', type: 'EXP_BUFF', expMult: 1.30 },
+  { index: 4, name: 'THÌN', icon: '🌿', range: '16 - 20p', phenomenon: 'Vạn Mộc Triều Dương', element: 'Mộc', bonusDesc: 'Dược Điền sinh trưởng cực nhanh, thu hoạch x1.5 sản lượng thảo dược', type: 'FARM_BUFF', farmYieldMult: 1.5 },
+  { index: 5, name: 'TỊ', icon: '🔥', range: '20 - 24p', phenomenon: 'Thuần Dương Nhen Nhóm', element: 'Hỏa', bonusDesc: 'Đan hỏa ôn hòa ổn định, giảm 25% tỷ lệ nổ lò luyện đan', type: 'ALCHEMY_BUFF', alchSuccessBonus: 0.25 },
+  { index: 6, name: 'NGỌ', icon: '☀️', range: '24 - 28p', phenomenon: 'Thái Dương Cực Thịnh', element: 'Hỏa / Lôi', bonusDesc: 'Hỏa & Lôi công kích +25%, gây thêm +30% sát thương chuẩn lên Ma Tộc', type: 'HOA_LOI', atkBonus: 0.25, vsMaBonus: 0.30 },
+  { index: 7, name: 'MÙI', icon: '⚒️', range: '28 - 32p', phenomenon: 'Hỏa Nung Kim Địa', element: 'Thổ / Kim', bonusDesc: 'Thần Thức Tầm Bảo tăng +25% xác suất đào được Linh Thạch cổ', type: 'MINE_BUFF', treasureBonus: 0.25 },
+  { index: 8, name: 'THÂN', icon: '⚔️', range: '32 - 36p', phenomenon: 'Bạch Hổ Canh Kim', element: 'Kim', bonusDesc: 'Kim Mệnh +25%, Phi Kiếm tăng +15% xuyên giáp, Bạo Kích +5%', type: 'KIM', atkBonus: 0.25, critBonus: 0.05 },
+  { index: 9, name: 'DẬU', icon: '🌪️', range: '36 - 40p', phenomenon: 'Hoàng Hôn Lạc Nhật', element: 'Phong', bonusDesc: 'Phong Mệnh +25%, Thân pháp ngự kiếm x2, Tỉ lệ Né Tránh +8%', type: 'PHONG', speedBonus: 0.50, dodgeBonus: 0.08 },
+  { index: 10, name: 'TUẤT', icon: '🐺', range: '40 - 44p', phenomenon: 'Ma Chướng Khởi Sinh', element: 'Ma / Tà', bonusDesc: 'Quái bãi săn cuồng nộ, tăng +35% tỷ lệ rơi Yêu Đan & Bí Tịch', type: 'HUNT_BUFF', dropRateBonus: 0.35 },
+  { index: 11, name: 'HỢI', icon: '🌌', range: '44 - 48p', phenomenon: 'Vạn Linh Quy Tịch', element: 'Toàn Hệ', bonusDesc: 'Tốc độ hồi phục Thể Lực (Stamina) tăng +50%', type: 'STAMINA_BUFF', staminaRegenMult: 1.50 }
+];
+
+const WEATHER_CONFIG = {
+  thanh_thien: { id: 'thanh_thien', name: 'Thanh Thiên Không Mây', icon: '☀️', desc: 'Ngũ hành điều hòa, thiên địa thanh bình, vạn vật hanh thông.' },
+  bao_set: { id: 'bao_set', name: 'Bão Mưa Sấm Chớp', icon: '⛈️', desc: 'Thủy +30%, Lôi +25%, Dược Điền tự động ngậm nước đầy 100%!' },
+  han_han: { id: 'han_han', name: 'Hạn Hán Liệt Diễm', icon: '🏜️', desc: 'Hỏa +30%, lò luyện đan tăng nhiệt tự nhiên, Thủy tính suy giảm.' },
+  huyen_suong: { id: 'huyen_suong', name: 'Vạn Dặm Huyền Sương', icon: '🌫️', desc: 'Né tránh +10%, Thần Thức quét kho báu phát hiện Cổ Vật dễ hơn.' },
+  huyet_nguyet: { id: 'huyet_nguyet', name: '🩸 HUYẾT NGUYỆT GIÁNG THẾ', icon: '🩸', desc: 'Mặt trăng chuyển đỏ máu! Ma Tộc bạo nộ +40% sát thương, rơi Thần Vật Thái Cổ!' }
+};
+
+function getCurrentCanhGioAndWeather() {
+  const now = Date.now();
+  const cycleMs = 48 * 60 * 1000;
+  const inCycleMs = now % cycleMs;
+  const canhGioIndex = Math.floor(inCycleMs / (4 * 60 * 1000));
+  const canhGio = CANH_GIO_CONFIG[canhGioIndex] || CANH_GIO_CONFIG[0];
+
+  const dayCycleIndex = Math.floor(now / cycleMs);
+  const weatherKeys = Object.keys(WEATHER_CONFIG);
+  const weatherSeed = (dayCycleIndex * 13 + 7) % (weatherKeys.length - 1);
+  let weather = WEATHER_CONFIG[weatherKeys[weatherSeed]] || WEATHER_CONFIG.thanh_thien;
+
+  if (canhGio.name === 'TÝ' && (dayCycleIndex % 30 === 15)) {
+    weather = WEATHER_CONFIG.huyet_nguyet;
+  }
+
+  const remainSec = 240 - Math.floor((inCycleMs % (4 * 60 * 1000)) / 1000);
+  return { canhGio, weather, remainSec };
+}
+
+// =========================================================================
+// 12. HỆ THỐNG LỤC ĐẠI TRANG BỊ BẢN MỆNH (DOC 21, 23)
+// 6 vị trí: weapon, armor, boots, amulet, ring, relic
+// =========================================================================
+const EQUIPMENT_CONFIG = {
+  // 1. Binh Khí
+  kiem_thanh_van: { id: 'kiem_thanh_van', slot: 'weapon', name: 'Thanh Vân Linh Kiếm', icon: '🗡️', tier: 'Hạ Phẩm', atk: 120, crit: 0.05, desc: 'Phi kiếm ngoại môn đệ tử Thanh Vân Tông (+120 Công, +5% Bạo Kích)' },
+  ma_dao_thon_thien: { id: 'ma_dao_thon_thien', slot: 'weapon', name: 'Thôn Thiên Ma Đao', icon: '⚔️', tier: 'Trung Phẩm', atk: 380, lifesteal: 0.08, desc: 'Đao ma rèn từ xương Hung Thú (+380 Công, +8% Hút Máu)' },
+  kiem_thai_hu: { id: 'kiem_thai_hu', slot: 'weapon', name: 'Thái Hư Cổ Kiếm', icon: '✨', tier: 'Cực Phẩm', atk: 950, crit: 0.15, desc: 'Thần kiếm thượng cổ chấn hưng vạn phái (+950 Công, +15% Bạo Kích)' },
+
+  // 2. Pháp Y / Đạo Bào
+  ao_thanh_truc: { id: 'ao_thanh_truc', slot: 'armor', name: 'Thanh Trúc Đạo Bào', icon: '🥋', tier: 'Hạ Phẩm', def: 60, hp: 500, desc: 'Đạo bào dệt từ linh trúc ngàn năm (+60 Giáp, +500 Khí Huyết)' },
+  giap_huyen_vu: { id: 'giap_huyen_vu', slot: 'armor', name: 'Huyền Vũ Thần Giáp', icon: '🛡️', tier: 'Cực Phẩm', def: 480, hp: 3800, desc: 'Giáp mai rùa ngàn năm đao thương bất nhập (+480 Giáp, +3.800 Máu)' },
+
+  // 3. Hài Thân Pháp
+  hai_thanh_phong: { id: 'hai_thanh_phong', slot: 'boots', name: 'Thanh Phong Tiên Hài', icon: '🥾', tier: 'Hạ Phẩm', speed: 30, dodge: 0.05, desc: 'Hài đạp mây ngự gió (+30 Thân Pháp, +5% Né Tránh)' },
+  hai_thien_loi: { id: 'hai_thien_loi', slot: 'boots', name: 'Thiên Lôi Huyễn Bộ Hài', icon: '⚡', tier: 'Cực Phẩm', speed: 120, dodge: 0.15, desc: 'Bước đi kéo theo tia lôi điện (+120 Thân Pháp, +15% Né Tránh)' },
+
+  // 4. Ngọc Bội Hộ Mệnh
+  ngoc_thanh_tam: { id: 'ngoc_thanh_tam', slot: 'amulet', name: 'Thanh Tâm Bích Ngọc Bội', icon: '📿', tier: 'Trung Phẩm', lightningResist: 0.15, desc: 'Ngọc bội an thần hộ tâm (Giảm 15% sát thương Lôi Kiếp)' },
+  ngoc_ho_mach: { id: 'ngoc_ho_mach', slot: 'amulet', name: 'Hộ Mạch Thần Phù Bội', icon: '💎', tier: 'Cực Phẩm', lightningResist: 0.35, desc: 'Chí bảo hộ đan điền (Giảm 35% sát thương Lôi Kiếp)' },
+
+  // 5. Giới Chỉ Không Gian
+  nhan_tu_di: { id: 'nhan_tu_di', slot: 'ring', name: 'Tu Di Giới Chỉ', icon: '💍', tier: 'Hạ Phẩm', expRateBonus: 0.10, desc: 'Nhẫn nạp linh khí càn khôn (Tăng +10% tốc độ tu luyện)' },
+  nhan_can_khon: { id: 'nhan_can_khon', slot: 'ring', name: 'Càn Khôn Nạp Giới', icon: '👑', tier: 'Cực Phẩm', expRateBonus: 0.30, desc: 'Không gian hư vô chứa càn khôn (Tăng +30% tốc độ tu luyện)' },
+
+  // 6. Bản Mệnh Dị Bảo
+  dinh_than_nong: { id: 'dinh_than_nong', slot: 'relic', name: 'Thần Nông Dược Đỉnh', icon: '🏺', tier: 'Thần Giai', hpRegen: 0.05, desc: 'Chí bảo đan đạo cổ đại (Tự động hồi phục 5% Khí Huyết mỗi hiệp)' },
+  cot_chan_tien: { id: 'cot_chan_tien', slot: 'relic', name: 'Chân Tiên Tiên Cốt', icon: '🦴', tier: 'Thần Giai', atk: 500, def: 300, desc: 'Xương tiên thái cổ phát quang (+500 Công Kích, +300 Phòng Ngự)' }
+};
+
+// =========================================================================
+// 13. HỆ THỐNG LỤC ĐẲNG ĐỆ TỬ TÔNG MÔN (DOC 12)
+// =========================================================================
+const SECT_RANKS_CONFIG = {
+  TAP_DICH: { id: 'TAP_DICH', name: 'Tạp Dịch Đệ Tử', icon: '🧹', stipend: 500, reqRealmId: 1, reqStones: 0, nextRank: 'NGOAI_MON', title: 'Tạp Dịch Viện', desc: 'Bổ củi, gánh nước, quét sân sơn môn' },
+  NGOAI_MON: { id: 'NGOAI_MON', name: 'Ngoại Môn Đệ Tử', icon: '🗡️', stipend: 1500, reqRealmId: 4, reqStones: 1000, nextRank: 'NOI_MON', title: 'Ngoại Môn Đường', desc: 'Tuần tra bìa rừng, săn bắt yêu thú sơ cấp' },
+  NOI_MON: { id: 'NOI_MON', name: 'Nội Môn Đệ Tử', icon: '🛡️', stipend: 5000, reqRealmId: 8, reqStones: 5000, nextRank: 'CHAN_TRUYEN', title: 'Nội Môn Điện', desc: 'Trấn thủ mỏ khoáng thạch, dẫn đội săn quái' },
+  CHAN_TRUYEN: { id: 'CHAN_TRUYEN', name: 'Chân Truyền Đệ Tử', icon: '🌟', stipend: 15000, reqRealmId: 13, reqStones: 20000, nextRank: 'THU_TICH', title: 'Chân Truyền Đỉnh', desc: 'Đồ đệ thân truyền đại Trưởng Lão, học tuyệt kỹ trấn phái' },
+  THU_TICH: { id: 'THU_TICH', name: 'Thủ Tịch Đại Đệ Tử', icon: '👑', stipend: 50000, reqRealmId: 18, reqStones: 100000, nextRank: 'THANH_TU', title: 'Đại Sư Huynh / Tỷ', desc: 'Đứng đầu vạn đệ tử môn phái, nắm giữ Chấp Pháp Quyền' },
+  THANH_TU: { id: 'THANH_TU', name: 'Thánh Tử / Thánh Nữ', icon: '☀️', stipend: 150000, reqRealmId: 24, reqStones: 300000, nextRank: null, title: 'Người Kế Vị Chưởng Môn', desc: 'Hiệu lệnh quần hùng cửu châu, uy áp cái thế' }
+};
+
+// =========================================================================
+// 14. HỆ THỐNG DANH PHẢ ĐẠI NPC & HẢO CẢM (DOC 13)
+// =========================================================================
+const NPCS_CONFIG = {
+  huyen_co: { id: 'huyen_co', name: 'Huyền Cơ (Khí Linh)', sect: 'Thái Cổ Thiên Đạo', avatar: '🔮', desc: 'Ý thức Trái Tim Thiên Đạo Thứ Nhất, ẩn trong ngực người chơi', giftLiked: 'yeu_dan_1', blessing: 'Giảm 20% sát thương Lôi Kiếp vĩnh viễn' },
+  ly_huyen_chan: { id: 'ly_huyen_chan', name: 'Lý Huyền Chân', sect: 'Thanh Vân Kiếm Tông', avatar: '⚔️', desc: 'Thuần Dương Kiếm Tôn Hóa Thần Kỳ, tóc bạc một đêm vì thê tử', giftLiked: 'dan_truc_co', blessing: 'Ban Bản Mệnh Kiếm Phù tăng +15% Sát Thương Binh Khí' },
+  doc_co_diet: { id: 'doc_co_diet', name: 'Độc Cô Diệt', sect: 'Vạn Ma Uyên', avatar: '🩸', desc: 'Ma tôn cuồng bạo xé nát thiên địa, sát phạt quả đoán', giftLiked: 'yeu_dan_2', blessing: 'Kích hoạt Huyết Ma Cuồng Nộ +10% Hút Máu' },
+  lieu_nhu_yen: { id: 'lieu_nhu_yen', name: 'Liễu Như Yên', sect: 'Hợp Hoan Tông', avatar: '🌸', desc: 'Tuyệt sắc giai nhân, hồng nhan trà xanh mang vết sẹo tủi nhục', giftLiked: 'thao_duoc_hoang_tinh', blessing: 'Bế quan song tu tăng gấp đôi Tu Vi nhận được' },
+  au_da_ton_gia: { id: 'au_da_ton_gia', name: 'Âu Dã Tôn Giả', sect: 'Thần Binh Các', avatar: '⚒️', desc: 'Lão thợ rèn cụt ngón từng chém rách Thần Giới', giftLiked: 'thao_duoc_linh_chi', blessing: 'Được ban 1 thanh Thanh Vân Linh Kiếm cực phẩm' },
+  co_nhu_tuyet: { id: 'co_nhu_tuyet', name: 'Cơ Như Tuyết', sect: 'Băng Tuyết Cung', avatar: '❄️', desc: 'Băng cơ ngọc cốt, lãnh diễm ngạo thị cửu tiêu', giftLiked: 'nuoc_linh_khi', blessing: 'Khí huyết hồi phục +10% sau mỗi trận thắng bãi săn' }
+};
+
 module.exports = {
   SPIRITUAL_ROOTS,
   APTITUDES,
@@ -801,6 +903,12 @@ module.exports = {
   ANCIENT_RELICS_APPRAISAL,
   REINCARNATION_RULES,
   FOUNDATION_CONFIG,
+  CANH_GIO_CONFIG,
+  WEATHER_CONFIG,
+  EQUIPMENT_CONFIG,
+  SECT_RANKS_CONFIG,
+  NPCS_CONFIG,
+  getCurrentCanhGioAndWeather,
   rollSpiritualRoot,
   rollAptitude,
   rollLatentTrait,

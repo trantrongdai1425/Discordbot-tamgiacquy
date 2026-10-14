@@ -298,6 +298,12 @@ const {
   ANCIENT_RELICS_APPRAISAL,
   REINCARNATION_RULES,
   FOUNDATION_CONFIG,
+  CANH_GIO_CONFIG,
+  WEATHER_CONFIG,
+  EQUIPMENT_CONFIG,
+  SECT_RANKS_CONFIG,
+  NPCS_CONFIG,
+  getCurrentCanhGioAndWeather,
   rollSpiritualRoot,
   rollAptitude,
   rollLatentTrait,
@@ -692,6 +698,43 @@ function getCalculatedStats(char) {
     expRateMod += char.reincarnationCount * 0.50;
   }
 
+  // 1. LỤC ĐẠI TRANG BỊ BẢN MỆNH (EQUIPMENT_CONFIG)
+  let lightningResist = 0;
+  let dodgeRate = 0;
+  let lifesteal = 0;
+
+  if (char.equippedArtifacts) {
+    Object.values(char.equippedArtifacts).forEach(eqId => {
+      if (eqId && EQUIPMENT_CONFIG[eqId]) {
+        const eq = EQUIPMENT_CONFIG[eqId];
+        if (eq.atk) atkBonus += (eq.atk / realm.atk);
+        if (eq.def) defBonus += (eq.def / realm.def);
+        if (eq.hp) hpBonus += (eq.hp / realm.hp);
+        if (eq.speed) speedBonus += eq.speed;
+        if (eq.expRateBonus) expRateMod += eq.expRateBonus;
+        if (eq.lightningResist) lightningResist += eq.lightningResist;
+        if (eq.dodge) dodgeRate += eq.dodge;
+        if (eq.lifesteal) lifesteal += eq.lifesteal;
+      }
+    });
+  }
+
+  // 2. THIÊN THỜI: THẬP NHỊ THỜI THẦN (12 CANH GIỜ) GIA TRÌ
+  const timeData = getCurrentCanhGioAndWeather();
+  const cg = timeData.canhGio;
+  if (cg.expMult) expRateMod += (cg.expMult - 1.0);
+  if (cg.atkBonus) atkBonus += cg.atkBonus;
+  if (cg.defBonus) defBonus += cg.defBonus;
+  if (cg.speedBonus) speedBonus += (cg.speedBonus * 10);
+
+  // 3. ĐẠI NPC HẢO CẢM GIA HỘ (DOC 13)
+  if (char.npcAffinities) {
+    if ((char.npcAffinities['ly_huyen_chan'] || 0) >= 100) atkBonus += 0.15;
+    if ((char.npcAffinities['lieu_nhu_yen'] || 0) >= 100) expRateMod += 0.20;
+    if ((char.npcAffinities['doc_co_diet'] || 0) >= 100) lifesteal += 0.10;
+    if ((char.npcAffinities['huyen_co'] || 0) >= 100) lightningResist += 0.20;
+  }
+
   const hp = Math.max(100, Math.floor(realm.hp * (1 + hpBonus)));
   const atk = Math.max(10, Math.floor(realm.atk * (1 + atkBonus)));
   const def = Math.max(5, Math.floor(realm.def * (1 + defBonus)));
@@ -733,7 +776,12 @@ function getCalculatedStats(char) {
     rootName: root.name,
     aptitudeRank: apt.rank,
     pillToxins,
-    foundationStability
+    foundationStability,
+    timeData,
+    lightningResist,
+    dodgeRate,
+    lifesteal,
+    sectRank: char.sectRank || 'TAP_DICH'
   };
 }
 
@@ -873,8 +921,8 @@ function simulateCombat(char, monster) {
   };
 }
 
-// 11. CƠ CHẾ ĐÀI ĐỘ KIẾP LÔI ĐÌNH (KẾT HỢP TỘC & ĐẠO CƠ)
-function simulateTribulation(char, useShieldPill = false) {
+// 11. CƠ CHẾ ĐÀI ĐỘ KIẾP LÔI ĐÌNH (KẾT HỢP TỘC & ĐẠO CƠ & ĐỒNG ĐỘI HỘ PHÁP - DOC 26)
+function simulateTribulation(char, useShieldPill = false, partner = null) {
   const currentRealm = REALMS.find(r => r.id === char.realmId) || REALMS[0];
   const nextRealm = REALMS.find(r => r.id === char.realmId + 1);
   if (!nextRealm) {
@@ -887,8 +935,11 @@ function simulateTribulation(char, useShieldPill = false) {
   const raceMods = getRaceModifiers(char.race || "Nhan", char.realmId);
   const root = SPIRITUAL_ROOTS[char.spiritualRoot] || SPIRITUAL_ROOTS["chan_can"];
 
-  // Tính kháng lôi kiếp từ kỹ năng, huyết thú, linh căn và yêu tộc
+  // Tính kháng lôi kiếp từ kỹ năng, huyết thú, linh căn và trang bị
   let lightningResist = (root.lightningResist || 0) + (raceMods.tribulationResist || 0);
+  if (pStats.lightningResist) {
+    lightningResist += pStats.lightningResist;
+  }
   if (char.learnedSkills) {
     char.learnedSkills.forEach(sid => {
       if (SKILLS_CONFIG[sid] && SKILLS_CONFIG[sid].lightningResist) {
@@ -903,6 +954,11 @@ function simulateTribulation(char, useShieldPill = false) {
       }
     });
   }
+
+  // Giờ Vàng Độ Kiếp (Giờ Dần - Doc 09): giảm 15% sát thương lôi phạt tự nhiên
+  const timeData = getCurrentCanhGioAndWeather();
+  const tribReduce = timeData.canhGio.tribReduce || 0;
+  let partnerAbsorbedTotal = 0;
 
   // Số đạo lôi kiếp (Đại cảnh: 5, Tiểu cảnh: 3; Ma Tộc ở cảnh giới cao chịu thêm lôi kiếp)
   const isMajor = currentRealm.isMajor;
@@ -938,8 +994,19 @@ function simulateTribulation(char, useShieldPill = false) {
       netDmg *= 0.6; // Hộ Mạch Đan chặn 40%
     }
 
+    if (tribReduce > 0) {
+      netDmg *= (1 - tribReduce); // Giờ Dần giảm thêm 15%
+    }
+
     if (lightningResist > 0) {
       netDmg *= Math.max(0.25, 1 - lightningResist);
+    }
+
+    let partnerShare = 0;
+    if (partner) {
+      partnerShare = Math.floor(netDmg * 0.35); // Đạo Lữ hộ pháp gánh đỡ 35%
+      partnerAbsorbedTotal += partnerShare;
+      netDmg -= partnerShare;
     }
 
     netDmg = Math.floor(netDmg);
@@ -948,9 +1015,10 @@ function simulateTribulation(char, useShieldPill = false) {
     strikes.push({
       strikeIndex: i,
       damage: netDmg,
+      partnerShare,
       remainingHp: Math.max(0, playerHp),
       shieldUsed: useShieldPill,
-      text: `Đạo Lôi Kiếp thứ ${i}: Giáng xuống sấm sét lôi đình gây ${netDmg} sát thương! ${playerHp > 0 ? `(Khí huyết: ${playerHp}/${maxHp})` : "💀 (KHÍ HUYẾT ĐOẠN TUYỆT!)"}`
+      text: `Đạo Lôi Kiếp thứ ${i}: Giáng xuống sấm sét lôi đình gây ${netDmg} sát thương! ${partner ? `(🛡️ Đạo Lữ ${partner.name} hộ pháp gánh đỡ ${partnerShare} sát thương)` : ''} ${playerHp > 0 ? `(Khí huyết: ${playerHp}/${maxHp})` : "💀 (KHÍ HUYẾT ĐOẠN TUYỆT!)"}`
     });
 
     if (playerHp <= 0) {
@@ -964,6 +1032,10 @@ function simulateTribulation(char, useShieldPill = false) {
     isMajor,
     totalStrikes,
     strikes,
+    partnerAssisted: !!partner,
+    partnerName: partner ? partner.name : null,
+    partnerAbsorbedTotal,
+    isHourOfDan: tribReduce > 0,
     finalHp: Math.max(1, playerHp),
     nextRealmName: nextRealm.name,
     thanHiBonus: (isAlive && raceMods.thanHiBonus) ? raceMods.thanHiBonus : 0
@@ -1167,6 +1239,296 @@ function ensureCharacterSchema(char) {
   return char;
 }
 
+// =========================================================================
+// 15. CƠ CHẾ KHẢO HẠCH THĂNG CẤP LỤC ĐẲNG ĐỆ TỬ (DOC 12)
+// =========================================================================
+function promoteSectRank(char) {
+  const currentRank = char.sectRank || 'TAP_DICH';
+  const rankConfig = SECT_RANKS_CONFIG[currentRank];
+  if (!rankConfig || !rankConfig.nextRank) {
+    return { error: '👑 Đạo hữu đã đạt tới đỉnh cao Thánh Tử / Thánh Nữ tông môn!' };
+  }
+  const nextConfig = SECT_RANKS_CONFIG[rankConfig.nextRank];
+  if (char.realmId < nextConfig.reqRealmId) {
+    const reqRealm = REALMS.find(r => r.id === nextConfig.reqRealmId);
+    return { error: `⚠️ Cảnh giới chưa đủ! Cần đạt tối thiểu **${reqRealm?.name || 'Cảnh Giới Cao'}** để tham gia khảo hạch.` };
+  }
+  if ((char.spiritStones || 0) < nextConfig.reqStones) {
+    return { error: `⚠️ Không đủ Linh Thạch cống hiến môn phái! Cần **${nextConfig.reqStones.toLocaleString('vi-VN')} Linh Thạch**.` };
+  }
+  char.spiritStones -= nextConfig.reqStones;
+  char.sectRank = nextConfig.id;
+  return { success: true, newRank: nextConfig };
+}
+
+// =========================================================================
+// 16. CƠ CHẾ LỤC ĐẠI TRANG BỊ BẢN MỆNH (DOC 21, 23)
+// =========================================================================
+function equipArtifactItem(char, itemId) {
+  const item = EQUIPMENT_CONFIG[itemId];
+  if (!item) return { error: 'Không tìm thấy pháp bảo này!' };
+  if (!char.inventory || !char.inventory[itemId] || char.inventory[itemId] <= 0) {
+    return { error: 'Không có vật phẩm này trong Túi Trữ Vật!' };
+  }
+  if (!char.equippedArtifacts) {
+    char.equippedArtifacts = { weapon: null, armor: null, boots: null, amulet: null, ring: null, relic: null };
+  }
+  const slot = item.slot;
+  const oldItem = char.equippedArtifacts[slot];
+  if (oldItem) {
+    char.inventory[oldItem] = (char.inventory[oldItem] || 0) + 1;
+  }
+  char.inventory[itemId]--;
+  if (char.inventory[itemId] <= 0) delete char.inventory[itemId];
+  char.equippedArtifacts[slot] = itemId;
+  return { success: true, slot, item, oldItem };
+}
+
+function unequipArtifactItem(char, slot) {
+  if (!char.equippedArtifacts || !char.equippedArtifacts[slot]) {
+    return { error: 'Vị trí này không có trang bị nào!' };
+  }
+  const itemId = char.equippedArtifacts[slot];
+  char.equippedArtifacts[slot] = null;
+  if (!char.inventory) char.inventory = {};
+  char.inventory[itemId] = (char.inventory[itemId] || 0) + 1;
+  return { success: true, slot, itemId };
+}
+
+// =========================================================================
+// 17. CƠ CHẾ ĐẠI NPC & TẶNG QUÀ HẢO CẢM (DOC 13)
+// =========================================================================
+function giveNpcGift(char, npcId, itemKey) {
+  const npc = NPCS_CONFIG[npcId];
+  if (!npc) return { error: 'Không tìm thấy NPC này!' };
+  if (!char.inventory || (char.inventory[itemKey] || 0) <= 0) {
+    return { error: `Trong túi đồ không có ${itemKey} để tặng!` };
+  }
+  char.inventory[itemKey]--;
+  if (char.inventory[itemKey] <= 0) delete char.inventory[itemKey];
+
+  if (!char.npcAffinities) char.npcAffinities = {};
+  const isFav = npc.giftLiked === itemKey;
+  const gain = isFav ? 35 : 15;
+  const oldAff = char.npcAffinities[npcId] || 0;
+  const newAff = Math.min(100, oldAff + gain);
+  char.npcAffinities[npcId] = newAff;
+
+  let msg = `Tặng thành công cho **${npc.name}**! Hảo cảm: **+${gain}** (${newAff}/100).`;
+  if (isFav) msg += `\n💖 **Đại Hỷ!** Đây chính là kỳ vật mà ${npc.name} hằng mong ước!`;
+  if (newAff >= 100 && oldAff < 100) {
+    msg += `\n🌟 **TRI KỶ VIÊN MÃN!** Kích hoạt vĩnh viễn phúc duyên gia hộ: **${npc.blessing}**!`;
+  }
+  return { success: true, msg, newAff };
+}
+
+// =========================================================================
+// 18. MINI-GAME LÔI HOÀN ĐỔ MỆNH (BUCKSHOT ROULETTE - DOC 15)
+// =========================================================================
+function initBuckshotGame(userId, betStones = 200) {
+  const bullets = [true, true, true, false, false, false].sort(() => Math.random() - 0.5);
+  return {
+    userId,
+    betStones,
+    playerHp: 3,
+    foeHp: 3,
+    foeName: 'Hắc Huyết Lão Ma (Ma Tiêu Cục)',
+    bullets,
+    bulletIndex: 0,
+    sawedOff: false,
+    tacticalItems: ['kinh_soi', 'toai_dao', 'hoi_xuan'],
+    logs: ['Bàn cược Lôi Hoàn 6 viên đạn bắt đầu! Mỗi bên có 3 Giọt Máu Sinh Tử.'],
+    isFinished: false,
+    winner: null
+  };
+}
+
+function playBuckshotTurn(game, action) {
+  if (game.isFinished) return { error: 'Ván cược đã kết thúc!' };
+  const currentBullet = game.bullets[game.bulletIndex];
+  const dmg = game.sawedOff ? 2 : 1;
+  game.sawedOff = false;
+
+  if (action === 'use_kinh_soi') {
+    if (!game.tacticalItems.includes('kinh_soi')) return { error: 'Đã hết Kính Soi Đạn!' };
+    game.tacticalItems = game.tacticalItems.filter(i => i !== 'kinh_soi');
+    const isLive = currentBullet;
+    game.logs.unshift(`🔍 Soi nòng lôi hoàn: Viên đạn hiện tại là **${isLive ? '⚡ ĐẠN THẬT' : '💨 ĐẠN GIẢ'}**!`);
+    return { game, msg: `Viên đạn trong nòng là: ${isLive ? '⚡ ĐẠN THẬT' : '💨 ĐẠN GIẢ'}` };
+  }
+
+  if (action === 'use_toai_dao') {
+    if (!game.tacticalItems.includes('toai_dao')) return { error: 'Đã hết Toái Lôi Đao!' };
+    game.tacticalItems = game.tacticalItems.filter(i => i !== 'toai_dao');
+    game.sawedOff = true;
+    game.logs.unshift(`🗡️ Cắt ngắn nòng lôi hoàn: Phát bắn tiếp theo sẽ gây **GẤP ĐÔI SÁT THƯƠNG (-2 MÁU)**!`);
+    return { game, msg: 'Đã cắt ngắn nòng! Phát bắn kế tiếp sát thương x2!' };
+  }
+
+  if (action === 'use_hoi_xuan') {
+    if (!game.tacticalItems.includes('hoi_xuan')) return { error: 'Đã hết Hồi Xuân Đan!' };
+    game.tacticalItems = game.tacticalItems.filter(i => i !== 'hoi_xuan');
+    game.playerHp = Math.min(3, game.playerHp + 1);
+    game.logs.unshift(`💊 Nuốt Hồi Xuân Đan: Khí huyết sinh mệnh hồi phục **+1 Máu** (${game.playerHp}/3)!`);
+    return { game, msg: 'Hồi phục +1 Giọt Máu!' };
+  }
+
+  if (action === 'shoot_self') {
+    game.bulletIndex++;
+    if (currentBullet) {
+      game.playerHp -= dmg;
+      game.logs.unshift(`💥 Tự bắn vào ngực: LÔI ĐẠN NỔ TUNG! Đạo hữu mất **-${dmg} Máu**! Chuyền lượt cho Ma Tu.`);
+      if (game.playerHp <= 0) {
+        game.isFinished = true;
+        game.winner = 'foe';
+        game.logs.unshift('💀 Đạo hữu đã đoạn tuyệt sinh mệnh! Mất trắng tiền cược!');
+        return { game };
+      }
+      foeTurn(game);
+    } else {
+      game.logs.unshift(`💨 Tự bắn vào ngực: CẠCH! Là Đạn Giả! Đạo hữu dũng cảm ĐƯỢC ĐI TIẾP 1 LƯỢT NỮA!`);
+    }
+  } else if (action === 'shoot_foe') {
+    game.bulletIndex++;
+    if (currentBullet) {
+      game.foeHp -= dmg;
+      game.logs.unshift(`⚡ Chĩa súng bắn Ma Tu: ĐẠN NỔ RỀN VANG! ${game.foeName} mất **-${dmg} Máu**!`);
+      if (game.foeHp <= 0) {
+        game.isFinished = true;
+        game.winner = 'player';
+        game.logs.unshift(`👑 ${game.foeName} bị bắn nát thần hồn! Đạo hữu ĐOẠT TOÀN BỘ TIỀN CƯỢC!`);
+        return { game };
+      }
+    } else {
+      game.logs.unshift(`💨 Chĩa súng bắn Ma Tu: CẠCH! Đạn Xịt! Lượt đi chuyển giao cho đối thủ.`);
+    }
+    foeTurn(game);
+  }
+
+  if (game.bulletIndex >= game.bullets.length && !game.isFinished) {
+    game.bullets = [true, true, false, false].sort(() => Math.random() - 0.5);
+    game.bulletIndex = 0;
+    game.logs.unshift('🔄 Hết đạn! Nạp thêm 4 viên lôi đan mới vào nòng!');
+  }
+
+  return { game };
+}
+
+function foeTurn(game) {
+  if (game.isFinished) return;
+  const currentBullet = game.bullets[game.bulletIndex];
+  game.bulletIndex++;
+  const foeShootSelf = Math.random() < 0.4;
+
+  if (foeShootSelf) {
+    if (currentBullet) {
+      game.foeHp -= 1;
+      game.logs.unshift(`🩸 ${game.foeName} tự bắn trúng ĐẠN THẬT (-1 Máu)! Đến lượt bạn.`);
+      if (game.foeHp <= 0) {
+        game.isFinished = true;
+        game.winner = 'player';
+      }
+    } else {
+      game.logs.unshift(`💨 ${game.foeName} tự bắn trúng ĐẠN GIẢ! Hắn chĩa súng sang bạn!`);
+      if (game.bulletIndex < game.bullets.length) {
+        const nextBullet = game.bullets[game.bulletIndex];
+        game.bulletIndex++;
+        if (nextBullet) {
+          game.playerHp -= 1;
+          game.logs.unshift(`⚡ ${game.foeName} bắn bạn: TRÚNG ĐẠN THẬT (-1 Máu)!`);
+          if (game.playerHp <= 0) {
+            game.isFinished = true;
+            game.winner = 'foe';
+          }
+        } else {
+          game.logs.unshift(`💨 ${game.foeName} bắn bạn: ĐẠN GIẢ! Bạn an toàn thoát hiểm!`);
+        }
+      }
+    }
+  } else {
+    if (currentBullet) {
+      game.playerHp -= 1;
+      game.logs.unshift(`⚡ ${game.foeName} chĩa súng bắn bạn: TRÚNG ĐẠN THẬT (-1 Máu)!`);
+      if (game.playerHp <= 0) {
+        game.isFinished = true;
+        game.winner = 'foe';
+      }
+    } else {
+      game.logs.unshift(`💨 ${game.foeName} chĩa súng bắn bạn: ĐẠN GIẢ XỊT! Đến lượt bạn.`);
+    }
+  }
+}
+
+// =========================================================================
+// 19. GIAO DỊCH P2P & TIÊN TÍN HÒM THƯ (DOC 25)
+// =========================================================================
+function transferStonesOrItem(senderChar, receiverChar, stones = 0, itemId = null, qty = 1) {
+  if (stones > 0) {
+    if ((senderChar.spiritStones || 0) < stones) return { error: 'Không đủ Linh Thạch để gửi!' };
+    senderChar.spiritStones -= stones;
+  }
+  if (itemId) {
+    if (!senderChar.inventory || (senderChar.inventory[itemId] || 0) < qty) {
+      return { error: `Trong túi đồ không đủ số lượng ${itemId}!` };
+    }
+    senderChar.inventory[itemId] -= qty;
+    if (senderChar.inventory[itemId] <= 0) delete senderChar.inventory[itemId];
+  }
+
+  if (!receiverChar.mailbox) receiverChar.mailbox = [];
+  receiverChar.mailbox.push({
+    id: 'mail_p2p_' + Date.now(),
+    title: `💌 Tiên Thư Từ ${senderChar.name}`,
+    content: `Đạo hữu **${senderChar.name}** đã phi kiếm truyền thư gửi tặng ngươi một số lễ vật!`,
+    attachedStones: stones || 0,
+    attachedItems: itemId ? [{ itemId, quantity: qty }] : [],
+    isClaimed: false,
+    createdAt: Date.now()
+  });
+
+  return { success: true, stones, itemId, qty };
+}
+
+// =========================================================================
+// 20. TIÊN DUYÊN ĐẠO LỮ & SONG TU (DOC 26)
+// =========================================================================
+function marryPartner(charA, charB) {
+  if (charA.partnerName || charB.partnerName) {
+    return { error: 'Một trong hai vị đạo hữu đã có Đạo Lữ bản mệnh rồi!' };
+  }
+  if ((charA.spiritStones || 0) < 5000) {
+    return { error: 'Cần 5.000 Linh Thạch để mua Định Tình Ngọc Bội tổ chức hôn lễ Tiên Giới!' };
+  }
+  charA.spiritStones -= 5000;
+  charA.partnerName = charB.name;
+  charB.partnerName = charA.name;
+  return { success: true };
+}
+
+function performSongTu(charA, charB) {
+  const now = Date.now();
+  const lastA = charA.lastSongTuAt || 0;
+  if ((now - lastA) < 24 * 3600 * 1000) {
+    const remainH = Math.ceil((24 * 3600 * 1000 - (now - lastA)) / 3600000);
+    return { error: `⏳ Hai vị đã bế quan song tu hôm nay rồi! Vui lòng chờ sau **${remainH} giờ** nữa.` };
+  }
+  charA.lastSongTuAt = now;
+  charB.lastSongTuAt = now;
+
+  const statsA = getCalculatedStats(charA);
+  const statsB = getCalculatedStats(charB);
+  const expGainA = Math.floor(statsA.expPerSec * 10800); // 3h tu luyện
+  const expGainB = Math.floor(statsB.expPerSec * 10800);
+
+  charA.exp = Math.min(statsA.maxExp, (charA.exp || 0) + expGainA);
+  charB.exp = Math.min(statsB.maxExp, (charB.exp || 0) + expGainB);
+
+  cleansePillToxins(charA, 10);
+  cleansePillToxins(charB, 10);
+
+  return { success: true, expGainA, expGainB };
+}
+
 module.exports = {
   REALMS,
   PHYSIQUES,
@@ -1182,6 +1544,12 @@ module.exports = {
   ANCIENT_RELICS_APPRAISAL,
   REINCARNATION_RULES,
   FOUNDATION_CONFIG,
+  CANH_GIO_CONFIG,
+  WEATHER_CONFIG,
+  EQUIPMENT_CONFIG,
+  SECT_RANKS_CONFIG,
+  NPCS_CONFIG,
+  getCurrentCanhGioAndWeather,
   getFoundationStabilityInfo,
   getPillToxinInfo,
   evaluateTrucCoGrade,
@@ -1207,5 +1575,14 @@ module.exports = {
   cleansePillToxins,
   reinforceFoundation,
   createNewCharacter,
-  ensureCharacterSchema
+  ensureCharacterSchema,
+  promoteSectRank,
+  equipArtifactItem,
+  unequipArtifactItem,
+  giveNpcGift,
+  initBuckshotGame,
+  playBuckshotTurn,
+  transferStonesOrItem,
+  marryPartner,
+  performSongTu
 };

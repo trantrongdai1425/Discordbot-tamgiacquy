@@ -83,6 +83,17 @@ const {
 } = require('./tutien/tutienUI');
 const { getAllCharacters, saveCharacter } = require('./tutien/db');
 
+// ==========================================
+// HỆ THỐNG ĐÀI PHÁT THANH LOFI 24/7
+// ==========================================
+const {
+  handleLofiSlashCommand,
+  handleLofiButtonInteraction,
+  handleLofiSelectMenu,
+  handleLofiMessageCommand,
+  initLofiAutoResume,
+} = require('./lofiManager');
+
 let loginStatus = 'Khởi tạo...';
 let loginError = null;
 let lastReadyTime = null;
@@ -1641,6 +1652,34 @@ client.once('ready', async () => {
       .addIntegerOption((opt) => opt.setName('stones').setDescription('Số lượng Linh Thạch gửi tặng').setRequired(false))
       .addStringOption((opt) => opt.setName('item').setDescription('Mã vật phẩm muốn tặng (ví dụ: dan_the_luc)').setRequired(false))
       .addIntegerOption((opt) => opt.setName('qty').setDescription('Số lượng vật phẩm (mặc định 1)').setRequired(false)),
+
+    // 39. Đài phát thanh Lofi 24/7 (Live Radio HD Stream)
+    new SlashCommandBuilder()
+      .setName('lofi')
+      .setDescription('Bật đài phát thanh Lofi 24/7 chất lượng cao không quảng cáo')
+      .addStringOption((opt) =>
+        opt
+          .setName('station')
+          .setDescription('Chọn thể loại đài Lofi')
+          .setRequired(false)
+          .addChoices(
+            { name: '☕ Lofi Chill & Study (Hunter FM)', value: 'chill' },
+            { name: '🎧 Chillhop Beats 24/7 (Streamafrica)', value: 'chillhop' },
+            { name: '🌙 Lofi Sleep & Relax (Laut FM)', value: 'sleep' },
+            { name: '🌌 Synthwave / Retro Chill (Cyberpunk)', value: 'synthwave' },
+            { name: '🍰 Coffee Shop Lofi (Quán Cà Phê)', value: 'cafe' }
+          )
+      )
+      .addStringOption((opt) =>
+        opt
+          .setName('mode247')
+          .setDescription('Bật hoặc tắt chế độ ghim phòng thoại 24/7')
+          .setRequired(false)
+          .addChoices(
+            { name: '🔒 Bật chế độ 24/7 (Không bao giờ rời phòng)', value: 'on' },
+            { name: '🔓 Tắt chế độ 24/7', value: 'off' }
+          )
+      ),
   ];
 
   try {
@@ -1655,6 +1694,11 @@ client.once('ready', async () => {
     console.error('⚠️ Không thể đăng ký Slash Commands:', cmdErr.message);
   }
 
+  // Khởi động tự động phục hồi các đài Lofi 24/7 khi bot online trở lại
+  setTimeout(() => {
+    initLofiAutoResume(client, getOrCreateVoiceSession);
+  }, 2000);
+
   console.log(`=============================================`);
 });
 
@@ -1663,10 +1707,13 @@ client.once('ready', async () => {
 // ==========================================
 client.on('interactionCreate', async (interaction) => {
   try {
-    // Xử lý Menu Thả Xuống Tu Tiên (Tu Chân Giới)
+    // Xử lý Menu Thả Xuống Tu Tiên (Tu Chân Giới) & Đài Lofi
     if (interaction.isStringSelectMenu()) {
       if (interaction.customId === 'tutien_feature_menu') {
         return handleTuTienSelectMenu(interaction);
+      }
+      if (interaction.customId === 'lofi_select_station') {
+        return handleLofiSelectMenu(interaction, getOrCreateVoiceSession);
       }
     }
 
@@ -1869,6 +1916,11 @@ client.on('interactionCreate', async (interaction) => {
       }
     }
 
+    // Xử lý các nút bấm đài Lofi 24/7
+    if (interaction.customId.startsWith('lofi_')) {
+      return handleLofiButtonInteraction(interaction, getOrCreateVoiceSession);
+    }
+
     // Xử lý các nút bấm tương tác Tu Tiên (Tu Chân Giới)
     if (interaction.customId.startsWith('tutien_')) {
       return handleTuTienButtonInteraction(interaction, async (prompt) => {
@@ -1885,6 +1937,11 @@ client.on('interactionCreate', async (interaction) => {
   const guildId = interaction.guildId;
   const connection = guildId ? getVoiceConnection(guildId) : null;
   const isInVoiceRoom = connection && connection.state.status === VoiceConnectionStatus.Ready;
+
+  // Lệnh /lofi (Đài phát thanh Lofi 24/7)
+  if (interaction.commandName === 'lofi') {
+    return handleLofiSlashCommand(interaction, getOrCreateVoiceSession);
+  }
 
   // Lệnh /tutien (Tu Chân Giới)
   if (interaction.commandName === 'tutien') {
@@ -3029,6 +3086,19 @@ client.on('messageCreate', async (message) => {
 
       const { embed, components } = createTransferEmbed(char, message.author, `Đã phi kiếm truyền thư thành công **${stones.toLocaleString('vi-VN')} Linh Thạch** bay thẳng vào Hòm Thư của **${targetChar.name}**!`);
       return message.reply({ embeds: [embed], components });
+    }
+
+    // LỆNH PHÁT NHẠC LOFI 24/7
+    if (
+      rawContent.startsWith('!lofi') ||
+      rawContent === 'lofi' ||
+      rawContent === 'nhạc lofi' ||
+      rawContent === 'bật lofi' ||
+      rawContent === 'mở lofi' ||
+      rawContent === 'phát lofi' ||
+      rawContent === 'nghe lofi'
+    ) {
+      return handleLofiMessageCommand(message, getOrCreateVoiceSession);
     }
 
     // HỎI ĐÁP VỚI AI KHI ĐƯỢC TAG, TRONG DM HOẶC GỌI TÊN TỰ NHIÊN

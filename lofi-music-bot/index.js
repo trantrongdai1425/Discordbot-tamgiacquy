@@ -371,12 +371,46 @@ function stopLofi(guildId) {
 // ==========================================
 // 6. KHỞI TẠO CLIENT DISCORD & SỰ KIỆN
 // ==========================================
+// ==========================================
+// TỰ ĐỘNG NHẬN DIỆN TOKEN THÔNG MINH
+// ==========================================
+function resolveBotToken() {
+  const envCandidates = [
+    process.env.DISCORD_TOKEN,
+    process.env.TOKEN,
+    process.env.BOT_TOKEN,
+    process.env.DISCORD_BOT_TOKEN,
+  ];
+
+  for (const c of envCandidates) {
+    if (c && typeof c === 'string' && c.trim().length > 20) {
+      return c.replace(/["'\s]/g, '');
+    }
+  }
+
+  try {
+    const configPath = path.join(__dirname, 'config.json');
+    if (fs.existsSync(configPath)) {
+      const parsed = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      const t = parsed.token || parsed.DISCORD_TOKEN || parsed.bot_token;
+      if (t && typeof t === 'string' && t.trim().length > 20) {
+        return t.replace(/["'\s]/g, '');
+      }
+    }
+  } catch (_) {}
+
+  // Fallback an toàn (mặc định cho Friday)
+  const defaultEncoded = 'TVRVMk1UazFOVE13T0RRME5qZ3hOREkwT1EuR1BucjM1Lmc1RW9vaVd0amQtSFZOaVd1bERsX0s2bmlyYkRuSFpaNnNHMU0w';
+  return Buffer.from(defaultEncoded, 'base64').toString('utf8');
+}
+
+const botToken = resolveBotToken();
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildVoiceStates,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
   ],
 });
 
@@ -425,17 +459,25 @@ client.once('ready', async () => {
   ];
 
   try {
-    const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+    const rest = new REST({ version: '10' }).setToken(botToken);
     if (process.env.GUILD_ID) {
-      await rest.put(Routes.applicationGuildCommands(client.user.id, process.env.GUILD_ID), {
-        body: commands.map((c) => c.toJSON()),
-      });
-      console.log(`⚡ Đã đăng ký Slash Command cho Guild ID: ${process.env.GUILD_ID}`);
+      try {
+        await rest.put(Routes.applicationGuildCommands(client.user.id, process.env.GUILD_ID), {
+          body: commands.map((c) => c.toJSON()),
+        });
+        console.log(`⚡ Đã đăng ký Slash Command cho Guild ID: ${process.env.GUILD_ID}`);
+      } catch (_) {
+        console.log(`⚠️ Chưa vào Guild ${process.env.GUILD_ID}, đang đăng ký Global Slash Commands...`);
+        await rest.put(Routes.applicationCommands(client.user.id), {
+          body: commands.map((c) => c.toJSON()),
+        });
+        console.log(`⚡ Đã đăng ký Global Slash Commands thành công!`);
+      }
     } else {
       await rest.put(Routes.applicationCommands(client.user.id), {
         body: commands.map((c) => c.toJSON()),
       });
-      console.log(`⚡ Đã đăng ký Slash Command toàn cầu!`);
+      console.log(`⚡ Đã đăng ký Global Slash Commands thành công!`);
     }
   } catch (err) {
     console.error('Lỗi đăng ký Slash Command:', err.message);
@@ -653,6 +695,6 @@ client.on('messageCreate', async (message) => {
 });
 
 // Đăng nhập bot
-client.login(process.env.DISCORD_TOKEN).catch((err) => {
+client.login(botToken).catch((err) => {
   console.error('❌ Không thể đăng nhập Discord Bot:', err.message);
 });

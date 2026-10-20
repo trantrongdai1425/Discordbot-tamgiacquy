@@ -281,4 +281,37 @@ Nếu bạn thuê một VPS riêng (Ubuntu / Debian), đây là cách chuẩn nh
 
 ---
 
+## 7. Hệ Thống Phát Nhạc Lofi 24/7 (Live Radio HD Stream)
+
+Bot được tích hợp sẵn động cơ phát thanh **Lofi Radio 24/7** chuyên dụng (Direct MP3 Stream 192kbps), không phụ thuộc vào YouTube, loại bỏ hoàn toàn các lỗi chặn bản quyền hoặc đứng luồng.
+
+### 📻 Danh Sách Các Đài Lofi Tích Hợp:
+1. ☕ **Lofi Chill & Study:** Giai điệu lofi hip-hop êm dịu, học tập & làm việc tập trung (Hunter FM).
+2. 🎧 **Chillhop Beats:** Nhịp điệu phong cách Lofi Girl đường phố thư thái (Streamafrica).
+3. 🌙 **Lofi Sleep & Relax:** Âm hưởng du dương, êm dịu giúp dễ ngủ & giải tỏa căng thẳng (Laut FM).
+4. 🌌 **Synthwave / Retro Chill:** Âm hưởng Cyberpunk điện tử hoài niệm thập niên 80 (Laut FM).
+5. 🍰 **Coffee Shop Lofi:** Không gian quán cà phê ấm cúng với tiếng mưa và piano nhẹ nhàng (I Love Music).
+
+### 🕹️ Cách Sử Dụng:
+- **Bằng Slash Command:**
+  - Gõ `/lofi` $\rightarrow$ Bot tự động vào phòng voice và mở bảng điều khiển trực quan.
+  - Tùy chọn `station`: Chọn sẵn thể loại đài mong muốn.
+  - Tùy chọn `mode247`: Bật (`on`) hoặc tắt (`off`) chế độ ghim phòng thoại.
+- **Bằng Lệnh Chat Nhanh (Prefix):**
+  - `!lofi` hoặc `lofi` hoặc nói `bật lofi` / `mở lofi`.
+  - `!lofi 247` để bật chế độ ghim kênh 24/7.
+  - `!lofi stop` để dừng phát và cho bot rời kênh.
+- **Nút Bấm Trực Quan (Interactive UI):**
+  - Menu thả xuống: Chọn và đổi đài lofi ngay lập tức.
+  - `[ ⏸️ Tạm Dừng / ▶️ Tiếp Tục ]`: Tạm dừng hoặc tiếp tục phát.
+  - `[ 🔒 24/7: BẬT / TẮT ]`: Bật/Tắt chế độ tự reconnect và không rời phòng.
+  - `[ 🔀 Đổi Đài ]`: Chuyển ngẫu nhiên sang đài phát thanh khác.
+  - `[ 🛑 Dừng & Rời ]`: Tắt đài và cho bot rời khỏi phòng voice.
+
+### 🛡️ Cơ Chế Tự Phục Hồi 24/7 Cực Kỳ Mạnh Mẽ:
+- **Tự reconnect khi rớt mạng:** Lắng nghe sự kiện Discord voice server và tự động kết nối lại sau 3 giây.
+- **Tự phát tiếp khi khởi động lại bot (Auto-Resume on Reboot):** Cấu hình kênh thoại và đài phát được lưu trữ an toàn trong `data/lofi_config.json`. Khi bot khởi động lại (reboot VPS/Render), bot sẽ **tự động vào lại đúng phòng thoại và tiếp tục phát nhạc** mà không cần thành viên gọi lại.
+
+---
+
 Chúc bạn cài đặt và triển khai Discord Bot thành công rực rỡ! 🚀

@@ -282,12 +282,13 @@ function cleanTextForTTS(text) {
 }
 
 async function generateAudioBuffer(text) {
+  const clean = cleanTextForTTS(text);
+  if (!clean || clean.length < 1) return null;
+
+  const textToRead = clean.slice(0, 500);
+
+  // 1. Thử Microsoft Edge TTS (Chất lượng cao nhất: vi-VN-NamMinhNeural)
   try {
-    const clean = cleanTextForTTS(text);
-    if (!clean || clean.length < 2) return null;
-
-    const textToRead = clean.slice(0, 500);
-
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-tts-'));
     const tts = new MsEdgeTTS();
     await tts.setMetadata(VOICE_NAME, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
@@ -300,11 +301,35 @@ async function generateAudioBuffer(text) {
     const buffer = fs.readFileSync(res.audioFilePath);
     fs.rmSync(tempDir, { recursive: true, force: true });
 
-    return buffer;
+    if (buffer && buffer.length > 0) {
+      return buffer;
+    }
   } catch (err) {
-    console.error('Lỗi tạo giọng đọc TTS:', err.message);
-    return null;
+    console.warn(`[TTS] Edge TTS tạm thời bận hoặc lỗi (${err.message}), chuyển sang Google TTS fallback...`);
   }
+
+  // 2. Dự phòng: Google Translate TTS (Hoạt động ổn định 100%, không bị lỗi 403)
+  try {
+    const encoded = encodeURIComponent(textToRead.slice(0, 200));
+    const googleTTSUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encoded}&tl=vi&client=tw-ob`;
+    const res = await fetch(googleTTSUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      },
+    });
+
+    if (res.ok) {
+      const arrayBuffer = await res.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      if (buffer && buffer.length > 0) {
+        return buffer;
+      }
+    }
+  } catch (gErr) {
+    console.error('[TTS] Google TTS fallback error:', gErr.message);
+  }
+
+  return null;
 }
 
 // ==========================================
@@ -921,13 +946,19 @@ async function playMultipleSongsFromNaturalRequest(songList, member, channel, sp
   let conn = getVoiceConnection(guildId);
   const session = getOrCreateVoiceSession(guildId);
 
-  // Tự động kết nối vào kênh voice nếu bot chưa vào
-  if (!conn) {
+  // Tự động kết nối vào kênh voice nếu bot chưa vào (hoặc kết nối cũ bị kẹt)
+  const isConnDead = !conn || conn.state.status === VoiceConnectionStatus.Disconnected || conn.state.status === VoiceConnectionStatus.Destroyed;
+  if (isConnDead || conn.joinConfig.channelId !== voiceChannel.id) {
+    if (conn) {
+      try { conn.destroy(); } catch (_) {}
+    }
     try {
       conn = joinVoiceChannel({
         channelId: voiceChannel.id,
         guildId: guildId,
         adapterCreator: voiceChannel.guild.voiceAdapterCreator,
+        selfDeaf: false,
+        selfMute: false,
       });
       session.boundChannels.add(voiceChannel.id);
       if (channel) session.boundChannels.add(channel.id);
@@ -2328,11 +2359,20 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     try {
-      const conn = joinVoiceChannel({
-        channelId: memberVoiceChannel.id,
-        guildId: memberVoiceChannel.guild.id,
-        adapterCreator: memberVoiceChannel.guild.voiceAdapterCreator,
-      });
+      let conn = getVoiceConnection(memberVoiceChannel.guild.id);
+      const isConnDead = !conn || conn.state.status === VoiceConnectionStatus.Disconnected || conn.state.status === VoiceConnectionStatus.Destroyed;
+      if (isConnDead || conn.joinConfig?.channelId !== memberVoiceChannel.id) {
+        if (conn) {
+          try { conn.destroy(); } catch (_) {}
+        }
+        conn = joinVoiceChannel({
+          channelId: memberVoiceChannel.id,
+          guildId: memberVoiceChannel.guild.id,
+          adapterCreator: memberVoiceChannel.guild.voiceAdapterCreator,
+          selfDeaf: false,
+          selfMute: false,
+        });
+      }
 
       const session = getOrCreateVoiceSession(memberVoiceChannel.guild.id);
       conn.subscribe(session.player);
@@ -2967,7 +3007,10 @@ client.on('messageCreate', async (message) => {
 
     const guildId = message.guildId;
     const connection = guildId ? getVoiceConnection(guildId) : null;
-    const isInVoiceRoom = connection && connection.state.status === VoiceConnectionStatus.Ready;
+    const isInVoiceRoom =
+      connection &&
+      connection.state.status !== VoiceConnectionStatus.Destroyed &&
+      connection.state.status !== VoiceConnectionStatus.Disconnected;
     const isBotMentioned = message.mentions.has(client.user.id);
     const isDirectMessage = !message.guild;
 
@@ -2975,12 +3018,33 @@ client.on('messageCreate', async (message) => {
     const wakeWordRegex = /^(jarvis ơi|javis ơi|jarvis|javis|bot ơi|trợ lý ơi|ê jarvis|ê bot|alo jarvis|alo bot)[\s,:]*/i;
     const isWakeWord = wakeWordRegex.test(message.content);
 
-    if (isInVoiceRoom && isReadChatEnabled && !isBotMentioned && !isWakeWord && !isDirectMessage) {
-      const session = guildVoiceSessions.get(guildId);
-      const isMusicPlaying = session && session.musicQueue && (session.musicQueue.isPlaying || session.musicPlayer.state.status === AudioPlayerStatus.Playing);
-      const isTargetChannel = session && (session.boundChannels.has(message.channelId) || session.boundChannels.size === 0);
+    // Không đọc các câu lệnh bắt đầu bằng ký tự đặc biệt (!, /, ., $) hoặc từ khóa Tu Tiên / Lofi
+    const rawContentTrimmed = (message.content || '').trim().toLowerCase();
+    const isPrefixCommand = /^[!/.$-]/.test(rawContentTrimmed);
+    const isSpecialGameKeyword = [
+      'tutien', 'tu tiên', 'tuvi', 'tudao', 'luyendan', 'duocdien',
+      'tuido', 'bxh', 'bxh-tutien', 'tambao', 'nhiemvu', 'bongloc',
+      'dothach', 'trangbi', 'tongmon', 'npc',
+      'lofi', 'nhạc lofi', 'bật lofi', 'mở lofi', 'phát lofi', 'nghe lofi'
+    ].includes(rawContentTrimmed);
+    const isCommandMessage = isPrefixCommand || isSpecialGameKeyword;
 
-      if (isTargetChannel && !isMusicPlaying) {
+    if (isInVoiceRoom && isReadChatEnabled && !isBotMentioned && !isWakeWord && !isDirectMessage && !isCommandMessage) {
+      const session = guildVoiceSessions.get(guildId);
+
+      // Kênh được phép đọc:
+      // 1. Kênh chat tích hợp của phòng thoại (Voice Channel Chat)
+      // 2. Người nhắn đang ở trong cùng phòng thoại với Bot
+      // 3. Kênh nằm trong danh sách boundChannels (hoặc bot chưa bind kênh nào thì đọc toàn server)
+      const botVoiceChannelId = connection?.joinConfig?.channelId;
+      const memberVoiceChannelId = message.member?.voice?.channelId;
+      const isUserInSameVoice = memberVoiceChannelId && memberVoiceChannelId === botVoiceChannelId;
+      const isVoiceTextChannel = botVoiceChannelId && message.channelId === botVoiceChannelId;
+      const isBoundChannel = !session || !session.boundChannels || session.boundChannels.size === 0 || session.boundChannels.has(message.channelId);
+
+      const isTargetChannel = isVoiceTextChannel || isUserInSameVoice || isBoundChannel;
+
+      if (isTargetChannel) {
         const senderName = message.member?.displayName || message.author.displayName || message.author.username;
         const cleanText = cleanTextForTTS(message.content);
 

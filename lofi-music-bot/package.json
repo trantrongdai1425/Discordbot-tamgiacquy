@@ -1,0 +1,29 @@
+{
+  "name": "lofi-music-bot-247",
+  "version": "1.0.0",
+  "description": "Discord 24/7 Lofi Radio Music Bot",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "lofi",
+    "music",
+    "radio",
+    "24/7"
+  ],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@discordjs/voice": "^0.19.2",
+    "@snazzah/davey": "^0.1.12",
+    "discord.js": "^14.27.0",
+    "dotenv": "^18.0.5",
+    "ffmpeg-static": "^5.3.0",
+    "prism-media": "^1.3.5",
+    "tweetnacl": "^1.0.3"
+  }
+}

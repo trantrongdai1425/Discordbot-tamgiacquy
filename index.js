@@ -2399,13 +2399,19 @@ client.on('interactionCreate', async (interaction) => {
     let conn = getVoiceConnection(guildId);
     const session = getOrCreateVoiceSession(guildId);
 
-    // Tự động kết nối vào kênh voice nếu bot chưa vào
-    if (!conn) {
+    // Tự động kết nối vào kênh voice nếu bot chưa vào (hoặc kết nối cũ bị kẹt)
+    const isConnDead = !conn || conn.state.status === VoiceConnectionStatus.Disconnected || conn.state.status === VoiceConnectionStatus.Destroyed;
+    if (isConnDead || conn.joinConfig.channelId !== memberVoiceChannel.id) {
+      if (conn) {
+        try { conn.destroy(); } catch (_) {}
+      }
       try {
         conn = joinVoiceChannel({
           channelId: memberVoiceChannel.id,
           guildId: memberVoiceChannel.guild.id,
           adapterCreator: memberVoiceChannel.guild.voiceAdapterCreator,
+          selfDeaf: false,
+          selfMute: false,
         });
         session.boundChannels.add(memberVoiceChannel.id);
         session.boundChannels.add(interaction.channelId);

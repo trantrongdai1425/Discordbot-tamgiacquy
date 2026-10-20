@@ -237,13 +237,19 @@ async function startLofiStream({
     textChannelId: textChannel?.id || null,
   };
 
-  // 1. Kết nối vào Voice Channel
+  // 1. Kết nối vào Voice Channel (Hủy kết nối cũ bị kẹt nếu có)
   let conn = getVoiceConnection(guildId);
-  if (!conn || conn.joinConfig.channelId !== voiceChannel.id) {
+  const isConnDead = !conn || conn.state.status === VoiceConnectionStatus.Disconnected || conn.state.status === VoiceConnectionStatus.Destroyed;
+  if (isConnDead || conn.joinConfig.channelId !== voiceChannel.id) {
+    if (conn) {
+      try { conn.destroy(); } catch (_) {}
+    }
     conn = joinVoiceChannel({
       channelId: voiceChannel.id,
       guildId: guildId,
       adapterCreator: voiceChannel.guild.voiceAdapterCreator,
+      selfDeaf: false,
+      selfMute: false,
     });
     session.boundChannels.add(voiceChannel.id);
     if (textChannel) session.boundChannels.add(textChannel.id);

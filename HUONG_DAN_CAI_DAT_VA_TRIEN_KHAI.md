@@ -213,6 +213,13 @@ Trong mã nguồn `index.js`, bot đã tích hợp sẵn một Web Server nhẹ 
    - **Monitoring Interval:** Chọn `5 minutes` (cứ 5 phút ping 1 lần).
 4. Nhấn **`Create Monitor`**. Từ giờ, UptimeRobot sẽ tự động gửi yêu cầu nhẹ mỗi 5 phút, giữ cho Bot của bạn **hoạt động 24/7 liên tục mà không bị ngủ đông**!
 
+> ⚠️ **LƯU Ý ĐẶC BIỆT QUAN TRỌNG VỀ TÍNH NĂNG VOICE / PHÁT NHẠC TRÊN RENDER:**
+> - Nền tảng Render.com **không hỗ trợ giao thức UDP** (User Datagram Protocol). Trong khi đó, Discord Voice bắt buộc phải dùng UDP (port 50000–65535) để truyền dữ liệu âm thanh.
+> - Vì vậy, nếu bạn host bot trên Render.com: Tất cả tính năng Chatbot AI, Tu Tiên, Game, Slash Commands đều chạy hoàn hảo 100%, **nhưng các lệnh âm thanh (`/lofi`, `/play`, TTS voice) sẽ không phát ra tiếng** do Render chặn luồng UDP của Discord.
+> - **Giải pháp để nghe nhạc 24/7 đầy đủ âm thanh:**
+>   1. **Chạy trực tiếp trên máy tính/laptop cá nhân:** Chạy lệnh `npm start` trên PowerShell/Terminal (hoàn toàn miễn phí, hỗ trợ UDP tuyệt đối, âm thanh chuẩn HD).
+>   2. **Chạy trên VPS Linux (Khuyên dùng cho 24/7):** Sử dụng VPS riêng (như Oracle Cloud Free Tier, DigitalOcean, Fly.io, Hetzner...) theo hướng dẫn ở **Mục 5** bên dưới. Các dịch vụ này cho phép mở cổng UDP tự do, giúp bot phát nhạc Lofi 24/24 xuyên ngày đêm.
+
 ---
 
 ## 5. Triển Khai Trên Máy Chủ Riêng (VPS Linux / Ubuntu)

@@ -249,10 +249,23 @@ async function startLofiStream({
     if (textChannel) session.boundChannels.add(textChannel.id);
   }
 
+  // Chờ Voice Connection đạt trạng thái Ready trước khi phát
+  try {
+    await entersState(conn, VoiceConnectionStatus.Ready, 15_000);
+  } catch (readyErr) {
+    console.warn('[Lofi 24/7] Chờ kết nối voice Ready:', readyErr.message);
+  }
+
   // 2. Tạo Audio Resource từ URL trực tiếp
-  const resource = createAudioResource(station.url);
+  const resource = createAudioResource(station.url, { inlineVolume: true });
+  if (resource.playStream) {
+    resource.playStream.on('error', (streamErr) => {
+      console.warn('[Lofi Stream Resource Error]:', streamErr.message);
+    });
+  }
   conn.subscribe(session.musicPlayer);
   session.musicPlayer.play(resource);
+  session.musicPlayer.unpause();
 
   // 3. Cập nhật cache phiên Lofi
   activeLofiSessions.set(guildId, {
@@ -324,10 +337,11 @@ async function startLofiStream({
         setTimeout(() => {
           try {
             const currentStation = getStation(active.stationId);
-            const newRes = createAudioResource(currentStation.url);
+            const newRes = createAudioResource(currentStation.url, { inlineVolume: true });
             const liveConn = getVoiceConnection(guildId);
             if (liveConn) liveConn.subscribe(session.musicPlayer);
             session.musicPlayer.play(newRes);
+            session.musicPlayer.unpause();
           } catch (loopErr) {
             console.error('[Lofi 24/7 Loop Error]:', loopErr.message);
           }
@@ -471,7 +485,13 @@ async function handleLofiButtonInteraction(interaction, getOrCreateVoiceSession)
     } else {
       const conn = getVoiceConnection(guildId);
       if (conn) conn.subscribe(session.musicPlayer);
-      session.musicPlayer.unpause();
+      if (session.musicPlayer.state.status === AudioPlayerStatus.Idle) {
+        const station = getStation(active.stationId);
+        const res = createAudioResource(station.url, { inlineVolume: true });
+        session.musicPlayer.play(res);
+      } else {
+        session.musicPlayer.unpause();
+      }
       active.isPlaying = true;
     }
 

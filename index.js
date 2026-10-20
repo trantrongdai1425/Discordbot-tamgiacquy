@@ -39,6 +39,8 @@ const {
   VoiceConnectionStatus,
   getVoiceConnection,
   EndBehaviorType,
+  entersState,
+  NoSubscriberBehavior,
 } = require('@discordjs/voice');
 const prism = require('prism-media');
 const { MsEdgeTTS, OUTPUT_FORMAT } = require('msedge-tts');
@@ -388,6 +390,20 @@ async function resolveTrackInfo(query, requestedBy) {
   let fallbackUrls = [];
   const candidates = [];
 
+  // Lofi query routing
+  if (query.trim().toLowerCase() === 'lofi' || query.trim().toLowerCase() === 'nhạc lofi') {
+    return {
+      title: 'Lofi Chill & Study (Hunter FM)',
+      artist: 'Lofi 24/7 Live Radio',
+      url: 'https://live.hunter.fm/lofi_high',
+      originalUrl: 'https://live.hunter.fm/lofi_high',
+      thumbnail: 'https://images.unsplash.com/photo-1518495973542-4542c06a5843?q=80&w=256',
+      duration: '24/7 Live Stream',
+      sourceType: 'direct',
+      requestedBy: requestedBy,
+    };
+  }
+
   // 0. Kiểm tra link file âm thanh trực tiếp (.mp3, .wav, .ogg, .m4a)
   if (query.match(/\.(mp3|wav|ogg|m4a)(\?.*)?$/i)) {
     const filename = query.split('/').pop().split('?')[0];
@@ -516,17 +532,38 @@ async function resolveTrackInfo(query, requestedBy) {
     return null;
   }
 
+  // Lấy trước link luồng HLS m3u8 để phát bằng FFmpeg (Tránh lỗi 404 từ play-dl)
+  let directM3u8Url = null;
+  try {
+    const trackData = await play.soundcloud(bestTrack.url);
+    if (trackData && trackData.formats && trackData.formats.length > 0) {
+      const format = trackData.formats.find((f) => f.format && f.format.protocol === 'hls') || trackData.formats[0];
+      if (format && format.url) {
+        const streamInfoRes = await fetch(format.url + (format.url.includes('?') ? '&' : '?') + 'client_id=' + scClientId);
+        if (streamInfoRes.ok) {
+          const streamJson = await streamInfoRes.json();
+          if (streamJson && streamJson.url) {
+            directM3u8Url = streamJson.url;
+          }
+        }
+      }
+    }
+  } catch (extractErr) {
+    console.warn(`[resolveTrackInfo] Không thể lấy trước m3u8: ${extractErr.message}`);
+  }
+
   return {
     title: title || bestTrack.name,
     artist: artist || bestTrack.user?.name || 'Nghệ sĩ',
     url: bestTrack.url,
+    m3u8Url: directM3u8Url,
     fallbackUrls: fallbackUrls || [],
     originalUrl: originalUrl.startsWith('http') ? originalUrl : bestTrack.url,
     thumbnail: thumbnail || bestTrack.thumbnail || '',
     duration: bestTrack.durationInSec
       ? `${Math.floor(bestTrack.durationInSec / 60)}:${('0' + (bestTrack.durationInSec % 60)).slice(-2)}`
       : 'N/A',
-    sourceType: 'soundcloud',
+    sourceType: directM3u8Url ? 'direct' : 'soundcloud',
     requestedBy: requestedBy,
   };
 }
@@ -580,8 +617,18 @@ function createNowPlayingEmbed(song) {
 
 function getOrCreateVoiceSession(guildId) {
   if (!guildVoiceSessions.has(guildId)) {
-    const player = createAudioPlayer();
-    const musicPlayer = createAudioPlayer();
+    const player = createAudioPlayer({
+      behaviors: {
+        noSubscriber: NoSubscriberBehavior.Play,
+        maxMissedFrames: Math.round(5000 / 20),
+      },
+    });
+    const musicPlayer = createAudioPlayer({
+      behaviors: {
+        noSubscriber: NoSubscriberBehavior.Play,
+        maxMissedFrames: Math.round(5000 / 20),
+      },
+    });
     const session = {
       player,
       musicPlayer,
@@ -638,11 +685,15 @@ function getOrCreateVoiceSession(guildId) {
 
     // Khi bài hát kết thúc -> Chuyển bài kế tiếp
     musicPlayer.on(AudioPlayerStatus.Idle, () => {
+      const curSession = guildVoiceSessions.get(guildId);
+      if (curSession?.lofiState?.isLofi) return;
       playNextSongInQueue(guildId);
     });
 
     musicPlayer.on('error', (err) => {
       console.error(`[Music Player Error ${guildId}]:`, err.message);
+      const curSession = guildVoiceSessions.get(guildId);
+      if (curSession?.lofiState?.isLofi) return;
       playNextSongInQueue(guildId);
     });
 
@@ -669,39 +720,76 @@ async function playNextSongInQueue(guildId) {
 
   try {
     let resource;
-    if (nextSong.sourceType === 'direct') {
-      resource = createAudioResource(nextSong.url);
+    if (nextSong.m3u8Url) {
+      resource = createAudioResource(nextSong.m3u8Url, { inlineVolume: true });
+    } else if (nextSong.sourceType === 'direct') {
+      resource = createAudioResource(nextSong.url, { inlineVolume: true });
     } else {
-      let stream = null;
+      let m3u8Found = null;
       const urlsToTry = [nextSong.url, ...(nextSong.fallbackUrls || [])];
-      for (const url of urlsToTry) {
+      for (const candidateUrl of urlsToTry) {
         try {
-          stream = await play.stream(url);
-          if (stream) break;
-        } catch (streamErr) {
-          console.warn(`[Stream Attempt Failed ${guildId}]: ${url} - ${streamErr.message}`);
-          if (streamErr.message.includes('404') || streamErr.message.includes('401')) {
-            scClientId = null;
-            await ensureSoundCloudClient();
+          await ensureSoundCloudClient();
+          const trackData = await play.soundcloud(candidateUrl);
+          if (trackData && trackData.formats && trackData.formats.length > 0) {
+            const format = trackData.formats.find((f) => f.format && f.format.protocol === 'hls') || trackData.formats[0];
+            if (format && format.url) {
+              const streamRes = await fetch(format.url + (format.url.includes('?') ? '&' : '?') + 'client_id=' + scClientId);
+              if (streamRes.ok) {
+                const streamJson = await streamRes.json();
+                if (streamJson && streamJson.url) {
+                  m3u8Found = streamJson.url;
+                  break;
+                }
+              }
+            }
           }
+        } catch (hlsErr) {
+          console.warn(`[HLS Extraction Failed ${guildId}]: ${candidateUrl} - ${hlsErr.message}`);
         }
       }
 
-      if (!stream) {
-        throw new Error('Nguồn bài hát bị giới hạn bản quyền hoặc không khả dụng (404 Not Found)');
+      if (m3u8Found) {
+        resource = createAudioResource(m3u8Found, { inlineVolume: true });
+      } else {
+        let stream = null;
+        for (const url of urlsToTry) {
+          try {
+            stream = await play.stream(url);
+            if (stream) break;
+          } catch (streamErr) {
+            console.warn(`[Stream Attempt Failed ${guildId}]: ${url} - ${streamErr.message}`);
+          }
+        }
+        if (!stream) {
+          throw new Error('Nguồn bài hát không khả dụng hoặc bị giới hạn bản quyền');
+        }
+        resource = createAudioResource(stream.stream, { inputType: stream.type, inlineVolume: true });
       }
-      resource = createAudioResource(stream.stream, { inputType: stream.type });
+    }
+
+    if (resource && resource.playStream) {
+      resource.playStream.on('error', (err) => {
+        console.warn(`[Music Resource Stream Error ${guildId}]: ${err.message}`);
+      });
     }
 
     const connection = getVoiceConnection(guildId);
     if (connection) {
+      try {
+        await entersState(connection, VoiceConnectionStatus.Ready, 15_000);
+      } catch (readyErr) {
+        console.warn(`[playNextSongInQueue] Chờ Voice Ready: ${readyErr.message}`);
+      }
+
+      connection.subscribe(session.musicPlayer);
       if (session.isPlaying) {
         session.isMusicPausedForTTS = true;
         session.musicPlayer.play(resource);
         session.musicPlayer.pause();
       } else {
-        connection.subscribe(session.musicPlayer);
         session.musicPlayer.play(resource);
+        session.musicPlayer.unpause();
       }
     }
 
